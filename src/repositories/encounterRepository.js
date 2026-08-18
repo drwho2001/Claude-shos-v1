@@ -43,7 +43,7 @@
 // `Time of Day` is a Notion FORMULA (derived from Date) — not a stored
 // field here either. See encounterCalculations.js: timeOfDay(date).
 
-import { localStorageAdapter as storage } from "./storageAdapter.js";
+import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_encounters";
 
@@ -185,21 +185,62 @@ function generateEncounterId() {
 // The repository itself.
 // ---------------------------------------------------------------------
 
+// ADDED 18 Aug 2026 — same shape change and migration as Contacts'
+// statedKinks, applied to kinksInvolved: was a flat array of Kink
+// Registry IDs, is now an array of {kinkId, role} selections. Kane's
+// ask covers this exact per-session case: "fisting happened" is enough
+// on its own, with an OPTIONAL role if he wants to note "I was fisting
+// top" for that specific session — role stays null otherwise, same
+// selection shape as Contacts either way. See contactRepository.js's
+// normalizeKinkSelections() for the full reasoning; duplicated here
+// rather than imported since it's a small pure function and Encounters
+// deliberately doesn't depend on Contacts' internals for anything else.
+function normalizeKinkSelections(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((entry) => {
+    if (typeof entry === "string") return { kinkId: entry, role: null };
+    if (entry && typeof entry === "object" && entry.kinkId) {
+      return { kinkId: entry.kinkId, role: entry.role ?? null };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
 export const EncounterRepository = {
+  // CHANGED 18 Aug 2026 — same defensive-merge fix applied across every
+  // repository this session: an encounter saved before some future
+  // field existed now reads back with that field defaulted from
+  // DEFAULT_ENCOUNTER, not missing entirely. Also runs kinksInvolved
+  // through normalizeKinkSelections() so old flat-ID-array encounters
+  // and new role-aware encounters both read back in the current shape.
   getAll() {
-    return structuredClone(encounters);
+    return structuredClone(
+      encounters.map((e) => {
+        const merged = { ...DEFAULT_ENCOUNTER, ...e };
+        return { ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved) };
+      })
+    );
   },
 
   getById(id) {
     const found = encounters.find((e) => e.id === id);
-    return found ? structuredClone(found) : null;
+    if (!found) return null;
+    const merged = { ...DEFAULT_ENCOUNTER, ...found };
+    return structuredClone({ ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved) });
   },
 
   // Every encounter that lists this contact as an attendee — the read
   // side of the Attendees relation. Used by encounterCalculations.js
   // and by the Contact Profile Timeline.
   getByAttendee(contactId) {
-    return structuredClone(encounters.filter((e) => e.attendeeIds.includes(contactId)));
+    return structuredClone(
+      encounters
+        .filter((e) => e.attendeeIds.includes(contactId))
+        .map((e) => {
+          const merged = { ...DEFAULT_ENCOUNTER, ...e };
+          return { ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved) };
+        })
+    );
   },
 
   create(data) {

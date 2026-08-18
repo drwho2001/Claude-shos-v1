@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
-import ContactsModule from "./SHOS_Contacts_Prototype";
-import MedicationDashboard from "./SHOS_Medication_Dashboard_Prototype";
-import EncountersModule from "./SHOS_Encounters_Prototype";
-import { exportBackup, importBackupFromFile } from "./backupService";
+import ContactsModule from "./modules/SHOS_Contacts_Prototype";
+import MedicationDashboard from "./modules/SHOS_Medication_Dashboard_Prototype";
+import EncountersModule from "./modules/SHOS_Encounters_Prototype";
+import MyProfileModule from "./modules/SHOS_MyProfile_Prototype";
+import { exportBackup, importBackupFromFile } from "./storage/backupService";
 
 // A basic switcher so you can flip between modules while testing in
 // StackBlitz. This isn't meant to be the app's real navigation — Doc 1's
@@ -16,6 +17,7 @@ const MODULES = {
   contacts: { label: "Contacts", component: ContactsModule },
   medication: { label: "Medication", component: MedicationDashboard },
   activity: { label: "Activity", component: EncountersModule },
+  myProfile: { label: "My Profile", component: MyProfileModule },
 };
 
 export default function App() {

@@ -1,18 +1,30 @@
+// SHOS_Encounters_Prototype.jsx — "Activity" screens (Doc 1 nav label) for
+// the Encounter domain object (Doc 3 B2, Doc 4 §3). Self-contained, same
+// pattern as the Contacts and Medication prototype files — its own theme
+// constants and form primitives, no shared UI-library file yet (per the
+// project's "discover abstractions after multiple modules exist" rule).
+//
+// Reads/writes ONLY through EncounterRepository + encounterCalculations.js.
+// Attendee picking reads ContactRepository (read-only here — Encounters
+// never writes to a Contact record; the link is one-directional storage,
+// as documented in encounterRepository.js).
+
 import React, { useState, useMemo } from "react";
 import { Plus, ChevronLeft, MoreVertical, X, Archive, Users, MapPin, Heart } from "lucide-react";
-
-// ──────────────────────────────────────────────────────────────────
-// PREVIEW BUNDLE — for Claude's in-chat preview only. Memory-only (no
-// persistence) because Claude's preview can't use localStorage — same
-// treatment as SHOS_Contacts_PREVIEW.jsx. Includes a MINIMAL, memory-
-// only ContactRepository stub (just id/name/nickname/isArchived) so
-// the Attendee picker has something to pick from in isolation — it is
-// NOT the real ContactRepository and doesn't need to be; the real
-// modular file (SHOS_Encounters_Prototype.jsx) imports the real one.
-// Real source of truth: encounterRepository.js, encounterCalculations.js,
-// SHOS_Encounters_Prototype.jsx. Don't edit this bundle directly — edit
-// the modular files and regenerate.
-// ──────────────────────────────────────────────────────────────────
+import {
+  EncounterRepository, DEFAULT_ENCOUNTER,
+  ENCOUNTER_TYPE_OPTIONS, MY_POSITION_OPTIONS, CUM_LOCATION_OPTIONS, MY_ROLE_OPTIONS,
+  PREP_COVERAGE_OPTIONS, DOXYPEP_STATUS_OPTIONS, WOULD_MEET_AGAIN_OPTIONS,
+} from "../repositories/encounterRepository";
+import { timeOfDay, sortByDateDesc, formatRelativeDate } from "../calculations/encounterCalculations";
+import { ContactRepository } from "../repositories/contactRepository";
+// New 18 Aug 2026: real registries now exist for these fields — replaces
+// the free-text TagField stubs used until this session.
+import { KinkRegistry, KINK_ROLE_OPTIONS } from "../registries/kinkRegistry";
+import { ChemsRegistry } from "../registries/chemsRegistry";
+import { ProtectionRegistry } from "../registries/protectionRegistry";
+import { SymptomsRegistry } from "../registries/symptomsRegistry";
+import { LocationsRepository } from "../repositories/locationsRepository";
 
 const LIGHT = {
   bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
@@ -22,150 +34,18 @@ const LIGHT = {
 };
 const radius = { sm: 8, md: 16, lg: 24, full: 999 };
 
-// ── Minimal memory-only Contact stub, preview-only ──
-let previewContacts = [
-  { id: "contact_001", name: "Alex", nickname: "", isArchived: false },
-  { id: "contact_002", name: "Jordan", nickname: "", isArchived: false },
-  { id: "contact_003", name: "Sam", nickname: "", isArchived: false },
-];
-const ContactRepository = {
-  getAll() { return structuredClone(previewContacts); },
-};
+function loadEncounters() {
+  return EncounterRepository.getAll();
+}
+function loadContacts() {
+  return ContactRepository.getAll();
+}
 function contactName(contacts, id) {
   const c = contacts.find((c) => c.id === id);
   return c ? (c.nickname || c.name) : "Unknown";
 }
 
-// ── Memory-only registries (Kink/Chems/Protection/Symptoms + Locations),
-// same simpleRegistry.js factory logic inlined for the preview panel —
-// see kinkRegistry.js etc. for the real, persisted versions. ──
-function makeSimpleRegistry(idPrefix, seedNames) {
-  let entries = seedNames.map((name, i) => ({ id: `${idPrefix}_${String(i + 1).padStart(3, "0")}`, name, isArchived: false }));
-  let next = entries.length + 1;
-  return {
-    getAll() { return structuredClone(entries); },
-    getById(id) { const f = entries.find((e) => e.id === id); return f ? structuredClone(f) : null; },
-    getByName(name) { const f = entries.find((e) => e.name.toLowerCase() === name.toLowerCase()); return f ? structuredClone(f) : null; },
-    create(data) { const e = { name: "", ...data, id: `${idPrefix}_${String(next).padStart(3, "0")}`, isArchived: false }; next += 1; entries = [...entries, e]; return e; },
-    findOrCreate(name) { const t = name.trim(); if (!t) return null; const existing = this.getByName(t); return existing || this.create({ name: t }); },
-    update(id, changes) { let u = null; entries = entries.map((e) => { if (e.id !== id) return e; u = { ...e, ...changes }; return u; }); return u; },
-    archive(id) { return this.update(id, { isArchived: true }); },
-    unarchive(id) { return this.update(id, { isArchived: false }); },
-  };
-}
-const KinkRegistry = makeSimpleRegistry("kink", ["Impact Play", "Praise", "Rimming", "Fisting"]);
-const ChemsRegistry = makeSimpleRegistry("chem", []);
-const ProtectionRegistry = makeSimpleRegistry("protection", ["Condom", "PrEP", "None"]);
-const SymptomsRegistry = makeSimpleRegistry("symptom_cat", []);
-// Locations has a richer shape than the trivial factory (Type, address,
-// Notes) — see locationsRepository.js for the real version. This
-// preview-only variant still supports findOrCreate for the picker.
-let previewLocations = [{ id: "location_001", name: "Home", type: "My House", isArchived: false }];
-let nextLocationNumber = 2;
-const LocationsRepository = {
-  getAll() { return structuredClone(previewLocations); },
-  getById(id) { const f = previewLocations.find((l) => l.id === id); return f ? structuredClone(f) : null; },
-  getByName(name) { const f = previewLocations.find((l) => l.name.toLowerCase() === name.toLowerCase()); return f ? structuredClone(f) : null; },
-  create(data) { const l = { name: "", type: "", address: "", notes: "", relatedContactId: "", ...data, id: `location_${String(nextLocationNumber).padStart(3, "0")}`, isArchived: false }; nextLocationNumber += 1; previewLocations = [...previewLocations, l]; return l; },
-  findOrCreate(name) { const t = name.trim(); if (!t) return null; const existing = this.getByName(t); return existing || this.create({ name: t }); },
-};
-
-// ── encounterRepository.js (inlined, memory-only — see file header) ──
-
-const ENCOUNTER_TYPE_OPTIONS = ["Hookup", "Group", "Date/Chill", "Sauna", "Event", "Other"];
-const MY_POSITION_OPTIONS = [
-  "Fingering - giving", "Fingering - receiving", "Oral - giving", "Oral - receiving",
-  "Rimming - giving", "Rimming - receiving", "Anal – top", "Anal - bottom",
-  "Kissing", "Cuddling", "Groping", "Mutual masturbation", "Kink", "Toys",
-];
-const CUM_LOCATION_OPTIONS = [
-  "Internal - Mouth", "Internal - Ass", "Internal - Vagina",
-  "External - Body/Face", "External - Hand", "Didn't happen",
-];
-const MY_ROLE_OPTIONS = ["Vanilla / N/A", "Sub", "Switch", "Dom", "Neither", "Dom, Switch", "N/A"];
-const PREP_COVERAGE_OPTIONS = [
-  "Adequate - daily (≥4/week)", "Adequate - Event-based (2-1-1)",
-  "Missed dose", "Inadequate/recently started", "Not on PrEP",
-];
-const DOXYPEP_STATUS_OPTIONS = [
-  "Not indicated", "Indicated - taken", "Indicated - not yet taken",
-  "Indicated - missed window", "N/A",
-];
-const WOULD_MEET_AGAIN_OPTIONS = ["Fuck YES 💖", "Yes", "If he makes effort", "Maybe", "No"];
-
-const DEFAULT_ENCOUNTER = {
-  title: "", date: "", dateEnd: "", isDateTime: false, encounterType: "",
-  attendeeIds: [], locationId: "", myPosition: [], kinksInvolved: [], myRole: "",
-  whereICame: [], whereHeCame: [], myDoxyPepStatus: "", myPrepCoverage: "",
-  chemsAlcoholUsed: [], wouldMeetAgain: "", protectionUsed: [], followUpNeeded: false,
-  notes: "", enjoymentRating: null, symptomsNoted: [],
-};
-
-let encounters = [
-  { ...DEFAULT_ENCOUNTER, id: "encounter_001", title: "Alex — coffee then back to his", date: "2026-07-20T19:30:00.000Z", isDateTime: true, encounterType: "Date/Chill", attendeeIds: ["contact_001"], myRole: "Switch", enjoymentRating: 85, wouldMeetAgain: "Yes", notes: "Second time meeting up.", createdAt: "2026-07-20T21:00:00.000Z", isArchived: false },
-  { ...DEFAULT_ENCOUNTER, id: "encounter_002", title: "Sauna trip", date: "2026-08-02T15:00:00.000Z", isDateTime: true, encounterType: "Sauna", attendeeIds: ["contact_002", "contact_003"], myRole: "Dom, Switch", enjoymentRating: 70, createdAt: "2026-08-02T18:00:00.000Z", isArchived: false },
-];
-function persist() { /* no-op in Claude's preview */ }
-function computeNextEncounterNumber(existing) {
-  const numbers = existing.map((e) => { const m = /^encounter_(\d+)$/.exec(e.id); return m ? parseInt(m[1], 10) : 0; });
-  return (numbers.length ? Math.max(...numbers) : 0) + 1;
-}
-let nextEncounterNumber = computeNextEncounterNumber(encounters);
-function generateEncounterId() {
-  const id = `encounter_${String(nextEncounterNumber).padStart(3, "0")}`;
-  nextEncounterNumber += 1;
-  return id;
-}
-const EncounterRepository = {
-  getAll() { return structuredClone(encounters); },
-  getById(id) { const f = encounters.find((e) => e.id === id); return f ? structuredClone(f) : null; },
-  getByAttendee(contactId) { return structuredClone(encounters.filter((e) => e.attendeeIds.includes(contactId))); },
-  create(data) {
-    const newEncounter = { ...DEFAULT_ENCOUNTER, ...data, id: generateEncounterId(), createdAt: new Date().toISOString(), isArchived: false };
-    encounters = [...encounters, newEncounter];
-    persist();
-    return newEncounter;
-  },
-  update(id, changes) {
-    let updated = null;
-    encounters = encounters.map((e) => { if (e.id !== id) return e; updated = { ...e, ...changes }; return updated; });
-    persist();
-    return updated;
-  },
-  archive(id) { return this.update(id, { isArchived: true }); },
-  unarchive(id) { return this.update(id, { isArchived: false }); },
-};
-
-// ── encounterCalculations.js (inlined) ──
-
-function timeOfDay(dateString) {
-  if (!dateString) return "—";
-  const d = new Date(dateString);
-  const hour = d.getHours();
-  if (hour < 5) return "Late Night";
-  if (hour < 12) return "Morning";
-  if (hour < 17) return "Afternoon";
-  if (hour < 21) return "Evening";
-  return "Night";
-}
-function formatRelativeDate(dateString) {
-  if (!dateString) return "—";
-  const then = new Date(dateString);
-  const now = new Date();
-  const diffDays = Math.floor((now - then) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return "in the future";
-  if (diffDays === 0) return "today";
-  if (diffDays === 1) return "yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) === 1 ? "" : "s"} ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) === 1 ? "" : "s"} ago`;
-  return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) === 1 ? "" : "s"} ago`;
-}
-function sortByDateDesc(list) {
-  return [...list].sort((a, b) => new Date(b.date) - new Date(a.date));
-}
-
-// ── Shared form primitives (same shapes as the modular file) ──
+// ── Shared primitives (same shapes as Contacts/Medication files) ──
 
 function SectionCard({ title, T, children }) {
   return (
@@ -175,6 +55,7 @@ function SectionCard({ title, T, children }) {
     </div>
   );
 }
+
 function TextField({ label, value, onChange, T, placeholder, type = "text" }) {
   return (
     <div style={{ padding: "8px 0" }}>
@@ -186,7 +67,9 @@ function TextField({ label, value, onChange, T, placeholder, type = "text" }) {
     </div>
   );
 }
+
 function DateTimeField({ label, value, onChange, T }) {
+  // value is stored as full ISO — the input needs the "YYYY-MM-DDTHH:mm" slice.
   const inputVal = value ? new Date(value).toISOString().slice(0, 16) : "";
   return (
     <div style={{ padding: "8px 0" }}>
@@ -197,6 +80,7 @@ function DateTimeField({ label, value, onChange, T }) {
     </div>
   );
 }
+
 function SelectField({ label, value, onChange, options, T }) {
   return (
     <div style={{ padding: "8px 0" }}>
@@ -209,8 +93,12 @@ function SelectField({ label, value, onChange, options, T }) {
     </div>
   );
 }
+
 function MultiSelectChips({ label, value, onChange, options, T }) {
-  const toggle = (opt) => { const has = value.includes(opt); onChange(has ? value.filter((v) => v !== opt) : [...value, opt]); };
+  const toggle = (opt) => {
+    const has = value.includes(opt);
+    onChange(has ? value.filter((v) => v !== opt) : [...value, opt]);
+  };
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 6 }}>{label}</div>
@@ -228,51 +116,134 @@ function MultiSelectChips({ label, value, onChange, options, T }) {
     </div>
   );
 }
-function RegistryTagPicker({ label, value, onChange, T, registry, placeholder }) {
+
+// Multi-select picker backed by a real registry (Kink/Chems/Protection/
+// Symptoms) instead of freeform text. `value` is an array of registry
+// IDs. Typing a name that already exists in the registry links to it
+// (case-insensitively); typing a genuinely new name creates a new
+// registry entry via findOrCreate — same "pick existing or type new"
+// ergonomics the old TagField had, but now backed by a real linked
+// entity instead of a bare string, closing the "Fist vs Fisting never
+// matched" gap flagged back on 18 Aug.
+function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [] }) {
   const [draft, setDraft] = useState("");
+  const listId = `registry-${label.replace(/\s+/g, "-")}`;
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
   const nameFor = (id) => allEntries.find((e) => e.id === id)?.name || registry.getById(id)?.name || "?";
+
+  // ADDED 18 Aug 2026 — trackRole mode: `value` becomes an array of
+  // {kinkId, role} selections instead of plain registry IDs — Kane's
+  // real per-session ask: "fisting happened" is enough on its own, with
+  // an OPTIONAL role if he wants to note "I was fisting top" for that
+  // specific encounter. Same mechanism as Contacts' Stated Kinks.
+  const selectedIds = trackRole ? value.map((v) => v.kinkId) : value;
+  const hasSelection = (id) => selectedIds.includes(id);
+
+  // ADDED 18 Aug 2026 — visible tappable suggestions, matching the
+  // pattern already used in Contacts/My Profile. This picker never had
+  // them, relying only on the native <datalist> dropdown, which is easy
+  // to type straight past without noticing — same gap already flagged
+  // and fixed elsewhere.
+  const visibleSuggestions = allEntries.filter((e) => !hasSelection(e.id) && !excludeIds.includes(e.id)).slice(0, 10);
+
+  const addEntries = (ids) => {
+    if (ids.length === 0) return;
+    if (trackRole) onChange([...value, ...ids.map((id) => ({ kinkId: id, role: null }))]);
+    else onChange([...value, ...ids]);
+  };
+  const removeEntry = (id) => {
+    if (trackRole) onChange(value.filter((v) => v.kinkId !== id));
+    else onChange(value.filter((v) => v !== id));
+  };
+  const cycleRole = (id) => {
+    if (!trackRole) return;
+    onChange(value.map((v) => {
+      if (v.kinkId !== id) return v;
+      const currentIndex = v.role ? roleOptions.indexOf(v.role) : -1;
+      const nextRole = currentIndex + 1 < roleOptions.length ? roleOptions[currentIndex + 1] : null;
+      return { ...v, role: nextRole };
+    }));
+  };
+
+  // CHANGED 18 Aug 2026 — real bug fix, same as Contacts/My Profile:
+  // "fisting, gooning, piss" used to become one registry entry named
+  // that whole string. Now splits on commas, resolves each piece
+  // independently.
   const commit = () => {
-    const trimmed = draft.trim();
-    if (trimmed) {
-      const entry = registry.findOrCreate(trimmed);
-      if (entry && !value.includes(entry.id)) onChange([...value, entry.id]);
-    }
+    const raw = draft.trim();
+    if (!raw) { setDraft(""); return; }
+    const parts = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    const newIds = [];
+    parts.forEach((part) => {
+      const entry = registry.findOrCreate(part);
+      if (entry && !hasSelection(entry.id) && !newIds.includes(entry.id)) newIds.push(entry.id);
+    });
+    addEntries(newIds);
     setDraft("");
   };
+
+  const tapSuggestion = (entry) => {
+    if (!hasSelection(entry.id)) addEntries([entry.id]);
+  };
+
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 6 }}>{label}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-        {value.map((id) => (
-          <div key={id} style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, border: `1px solid ${T.border}`, color: T.textSecondary, display: "flex", alignItems: "center", gap: 4 }}>
-            {nameFor(id)}
-            <X size={11} style={{ cursor: "pointer" }} onClick={() => onChange(value.filter((v) => v !== id))} />
+        {(trackRole ? value : value.map((id) => ({ kinkId: id, role: null }))).map((sel) => (
+          <div key={sel.kinkId} style={{ display: "flex", alignItems: "center", borderRadius: radius.full, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+            <div style={{ padding: "4px 8px", fontSize: 12, color: T.textSecondary, display: "flex", alignItems: "center", gap: 4 }}>
+              {nameFor(sel.kinkId)}
+              <X size={11} style={{ cursor: "pointer" }} onClick={() => removeEntry(sel.kinkId)} />
+            </div>
+            {trackRole && (
+              <div onClick={() => cycleRole(sel.kinkId)}
+                style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderLeft: `1px solid ${T.border}`, color: sel.role ? T.encountersPink : T.textDisabled }}>
+                {sel.role || "+ role"}
+              </div>
+            )}
           </div>
         ))}
       </div>
+      {/* ADDED 18 Aug 2026 — rendered above the input on purpose, same
+          reasoning as Contacts/My Profile: the on-screen keyboard covers
+          whatever's below the input the moment you tap in. */}
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((e) => (
+            <div key={e.id} onClick={() => tapSuggestion(e)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.encountersPink}`, color: T.encountersPink, cursor: "pointer" }}>
+              + {e.name}
+            </div>
+          ))}
+        </div>
+      )}
       <input value={draft} onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }}
-        list={`registry-${label.replace(/\s+/g, "-")}`}
-        placeholder={placeholder || "Pick existing or type a new one"}
+        list={listId}
+        placeholder={placeholder || "Pick existing or type new ones, comma-separated"}
         style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
-      <datalist id={`registry-${label.replace(/\s+/g, "-")}`}>
+      <datalist id={listId}>
         {allEntries.map((e) => <option key={e.id} value={e.name} />)}
       </datalist>
     </div>
   );
 }
+
+// Single-select version, for Location — one registry ID, not an array.
 function RegistrySinglePicker({ label, value, onChange, T, registry, placeholder }) {
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
   const current = value ? (allEntries.find((e) => e.id === value)?.name || registry.getById(value)?.name || "") : "";
   const [draft, setDraft] = useState(current);
+
   const commit = () => {
     const trimmed = draft.trim();
     if (!trimmed) { onChange(""); return; }
     const entry = registry.findOrCreate(trimmed);
     if (entry) onChange(entry.id);
   };
+
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
@@ -288,8 +259,12 @@ function RegistrySinglePicker({ label, value, onChange, T, registry, placeholder
     </div>
   );
 }
+
 function AttendeePicker({ value, onChange, T, contacts }) {
-  const toggle = (id) => { const has = value.includes(id); onChange(has ? value.filter((v) => v !== id) : [...value, id]); };
+  const toggle = (id) => {
+    const has = value.includes(id);
+    onChange(has ? value.filter((v) => v !== id) : [...value, id]);
+  };
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 6 }}>Attendees</div>
@@ -303,10 +278,12 @@ function AttendeePicker({ value, onChange, T, contacts }) {
             </div>
           );
         })}
+        {contacts.length === 0 && <div style={{ fontSize: 12, color: T.textDisabled, fontStyle: "italic" }}>No contacts yet — add one in Contacts first.</div>}
       </div>
     </div>
   );
 }
+
 function ReadRow({ label, value, T }) {
   const display = Array.isArray(value) ? value.join(", ") : value;
   if (!display && display !== 0) return null;
@@ -318,12 +295,19 @@ function ReadRow({ label, value, T }) {
   );
 }
 
+// ── Encounter Card (Doc 3 B2) — used in the Activity Landing timeline ──
 function EncounterCard({ encounter, contacts, T, onClick }) {
   const attendeeNames = encounter.attendeeIds.map((id) => contactName(contacts, id));
   const shown = attendeeNames.slice(0, 3);
   const extra = attendeeNames.length - shown.length;
   const locationName = encounter.locationId ? (LocationsRepository.getById(encounter.locationId)?.name || "") : "";
-  const kinkNames = encounter.kinksInvolved.map((id) => KinkRegistry.getById(id)?.name).filter(Boolean);
+  // Local copy — ActivityDetails has its own further down; this card
+  // renders in a different component/scope (the encounter list), so it
+  // needs its own rather than reaching across function boundaries.
+  const kinkNames = encounter.kinksInvolved.map((sel) => {
+    const name = KinkRegistry.getById(sel.kinkId)?.name;
+    return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+  }).filter(Boolean);
   return (
     <div onClick={onClick} style={{ border: `1px solid ${T.border}`, borderRadius: radius.md, background: T.surface, padding: 14, marginBottom: 10, cursor: "pointer" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -363,11 +347,17 @@ function EncounterCard({ encounter, contacts, T, onClick }) {
   );
 }
 
+// ── 3a. Activity Landing ──
 function ActivityLanding({ T, onOpenEncounter, onAdd }) {
-  const [list, setList] = useState(EncounterRepository.getAll);
-  const [contacts] = useState(ContactRepository.getAll);
+  const [encounters, setEncounters] = useState(loadEncounters);
+  const [contacts] = useState(loadContacts);
   const [showArchived, setShowArchived] = useState(false);
-  const visible = useMemo(() => sortByDateDesc(list.filter((e) => (showArchived ? true : !e.isArchived))), [list, showArchived]);
+
+  const visible = useMemo(() => {
+    const base = encounters.filter((e) => (showArchived ? true : !e.isArchived));
+    return sortByDateDesc(base);
+  }, [encounters, showArchived]);
+
   return (
     <div style={{ background: T.bg, minHeight: "100vh", paddingBottom: 90 }}>
       <div style={{ position: "sticky", top: 0, background: T.bg, padding: "16px 16px 8px", zIndex: 5 }}>
@@ -377,8 +367,12 @@ function ActivityLanding({ T, onOpenEncounter, onAdd }) {
         </div>
       </div>
       <div style={{ padding: "8px 16px" }}>
-        {visible.length === 0 && <div style={{ textAlign: "center", color: T.textDisabled, fontStyle: "italic", padding: "40px 0" }}>No encounters logged yet.</div>}
-        {visible.map((e) => <EncounterCard key={e.id} encounter={e} contacts={contacts} T={T} onClick={() => onOpenEncounter(e.id)} />)}
+        {visible.length === 0 && (
+          <div style={{ textAlign: "center", color: T.textDisabled, fontStyle: "italic", padding: "40px 0" }}>No encounters logged yet.</div>
+        )}
+        {visible.map((e) => (
+          <EncounterCard key={e.id} encounter={e} contacts={contacts} T={T} onClick={() => onOpenEncounter(e.id)} />
+        ))}
       </div>
       <div onClick={onAdd} style={{ position: "fixed", bottom: 24, right: 24, width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, color: T.fabIcon, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)" }}>
         <Plus size={26} />
@@ -387,14 +381,32 @@ function ActivityLanding({ T, onOpenEncounter, onAdd }) {
   );
 }
 
+// ── 3b. Activity Details ──
 function ActivityDetails({ T, encounterId, onBack, onEdit }) {
   const [encounter, setEncounter] = useState(() => EncounterRepository.getById(encounterId));
-  const [contacts] = useState(ContactRepository.getAll);
+  const [contacts] = useState(loadContacts);
   const [menuOpen, setMenuOpen] = useState(false);
   if (!encounter) return null;
+
+  // Resolves an array of registry IDs to their display names — used
+  // below for Kinks/Chems/Protection/Symptoms, since those are now real
+  // registry links, not plain strings.
   const resolveNames = (registry, ids) => ids.map((id) => registry.getById(id)?.name).filter(Boolean);
+  // ADDED 18 Aug 2026 — kinksInvolved is now {kinkId, role} selections,
+  // not plain IDs (see encounterRepository.js) — this resolves each to
+  // its display name, appending the role in parentheses when set.
+  const resolveKinkSelections = (selections) => selections.map((sel) => {
+    const name = KinkRegistry.getById(sel.kinkId)?.name;
+    return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+  }).filter(Boolean);
   const locationName = encounter.locationId ? (LocationsRepository.getById(encounter.locationId)?.name || "") : "";
-  const archive = () => { EncounterRepository.archive(encounter.id); setEncounter(EncounterRepository.getById(encounter.id)); setMenuOpen(false); };
+
+  const archive = () => {
+    EncounterRepository.archive(encounter.id);
+    setEncounter(EncounterRepository.getById(encounter.id));
+    setMenuOpen(false);
+  };
+
   return (
     <div style={{ background: T.bg, minHeight: "100vh", paddingBottom: 40 }}>
       <div style={{ position: "sticky", top: 0, background: T.bg, padding: "16px", display: "flex", alignItems: "center", justifyContent: "space-between", zIndex: 5 }}>
@@ -416,12 +428,14 @@ function ActivityDetails({ T, encounterId, onBack, onEdit }) {
           )}
         </div>
       </div>
+
       <div style={{ padding: "0 16px" }}>
         {encounter.isArchived && (
           <div style={{ background: `${T.actionRed}15`, border: `1px solid ${T.actionRed}`, borderRadius: radius.sm, padding: 10, fontSize: 12, color: T.actionRed, marginBottom: 4 }}>
             This encounter is archived.
           </div>
         )}
+
         <SectionCard title="Overview" T={T}>
           <ReadRow label="Title" value={encounter.title} T={T} />
           <ReadRow label="Encounter type" value={encounter.encounterType} T={T} />
@@ -430,57 +444,74 @@ function ActivityDetails({ T, encounterId, onBack, onEdit }) {
           <ReadRow label="Enjoyment rating" value={encounter.enjoymentRating} T={T} />
           <ReadRow label="Follow-up needed" value={encounter.followUpNeeded ? "Yes" : ""} T={T} />
         </SectionCard>
+
         <SectionCard title="Attendees" T={T}>
           {encounter.attendeeIds.length === 0
             ? <div style={{ fontSize: 13, color: T.textDisabled, fontStyle: "italic", padding: "8px 0" }}>None recorded.</div>
-            : encounter.attendeeIds.map((id) => <div key={id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13, color: T.encountersPink, fontWeight: 600 }}>{contactName(contacts, id)}</div>)}
+            : encounter.attendeeIds.map((id) => (
+              <div key={id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13, color: T.encountersPink, fontWeight: 600 }}>
+                {contactName(contacts, id)}
+              </div>
+            ))}
         </SectionCard>
+
         <SectionCard title="Practices" T={T}>
           <ReadRow label="My role" value={encounter.myRole} T={T} />
           <ReadRow label="My position" value={encounter.myPosition} T={T} />
           <ReadRow label="Where did I cum?" value={encounter.whereICame} T={T} />
           <ReadRow label="Where did he cum?" value={encounter.whereHeCame} T={T} />
         </SectionCard>
+
         <SectionCard title="Kink & chems" T={T}>
-          <ReadRow label="Kinks involved" value={resolveNames(KinkRegistry, encounter.kinksInvolved)} T={T} />
+          <ReadRow label="Kinks involved" value={resolveKinkSelections(encounter.kinksInvolved)} T={T} />
           <ReadRow label="Chems/alcohol used" value={resolveNames(ChemsRegistry, encounter.chemsAlcoholUsed)} T={T} />
         </SectionCard>
+
         <SectionCard title="Protection & medication context" T={T}>
           <ReadRow label="Protection used" value={resolveNames(ProtectionRegistry, encounter.protectionUsed)} T={T} />
           <ReadRow label="My PrEP coverage" value={encounter.myPrepCoverage} T={T} />
           <ReadRow label="My DoxyPEP status" value={encounter.myDoxyPepStatus} T={T} />
         </SectionCard>
+
         <SectionCard title="Health" T={T}>
           <ReadRow label="Symptoms noted" value={resolveNames(SymptomsRegistry, encounter.symptomsNoted)} T={T} />
         </SectionCard>
+
         <SectionCard title="Location" T={T}>
           <ReadRow label="Location" value={locationName} T={T} />
         </SectionCard>
+
         <SectionCard title="Notes" T={T}>
-          <div style={{ fontSize: 14, color: encounter.notes ? T.textPrimary : T.textDisabled, fontStyle: encounter.notes ? "normal" : "italic" }}>{encounter.notes || "No notes yet."}</div>
+          <div style={{ fontSize: 14, color: encounter.notes ? T.textPrimary : T.textDisabled, fontStyle: encounter.notes ? "normal" : "italic" }}>
+            {encounter.notes || "No notes yet."}
+          </div>
         </SectionCard>
       </div>
     </div>
   );
 }
 
+// ── Add/Edit sheet ──
 function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
   const isNew = !encounterId;
-  const [contacts] = useState(ContactRepository.getAll);
+  const [contacts] = useState(loadContacts);
   const [form, setForm] = useState(() => isNew ? { ...DEFAULT_ENCOUNTER } : EncounterRepository.getById(encounterId));
   const set = (key) => (val) => setForm((f) => ({ ...f, [key]: val }));
+
   const save = () => {
     if (isNew) EncounterRepository.create(form);
     else EncounterRepository.update(encounterId, form);
     onSaved();
   };
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 20, overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 20, overflowY: "auto" }} data-encounter-sheet>
       <div style={{ position: "sticky", top: 0, background: T.bg, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
         <X size={22} style={{ cursor: "pointer" }} onClick={onClose} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 16 }}>{isNew ? "Add Activity" : "Edit Activity"}</span>
         <div onClick={save} style={{ color: T.encountersPink, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Save</div>
       </div>
+
       <div style={{ padding: "0 16px 40px" }}>
         <SectionCard title="Overview" T={T}>
           <TextField label="Title" value={form.title} onChange={set("title")} T={T} placeholder="e.g. Alex — coffee then back to his" />
@@ -493,30 +524,37 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
             <span style={{ fontSize: 13, color: T.textPrimary }}>Follow-up needed</span>
           </div>
         </SectionCard>
+
         <SectionCard title="Attendees" T={T}>
           <AttendeePicker value={form.attendeeIds} onChange={set("attendeeIds")} T={T} contacts={contacts} />
         </SectionCard>
+
         <SectionCard title="Practices" T={T}>
           <SelectField label="My role" value={form.myRole} onChange={set("myRole")} options={MY_ROLE_OPTIONS} T={T} />
           <MultiSelectChips label="My position" value={form.myPosition} onChange={set("myPosition")} options={MY_POSITION_OPTIONS} T={T} />
           <MultiSelectChips label="Where did I cum?" value={form.whereICame} onChange={set("whereICame")} options={CUM_LOCATION_OPTIONS} T={T} />
           <MultiSelectChips label="Where did he cum?" value={form.whereHeCame} onChange={set("whereHeCame")} options={CUM_LOCATION_OPTIONS} T={T} />
         </SectionCard>
+
         <SectionCard title="Kink & chems" T={T}>
-          <RegistryTagPicker label="Kinks involved" value={form.kinksInvolved} onChange={set("kinksInvolved")} T={T} registry={KinkRegistry} />
+          <RegistryTagPicker label="Kinks involved" value={form.kinksInvolved} onChange={set("kinksInvolved")} T={T} registry={KinkRegistry} trackRole roleOptions={KINK_ROLE_OPTIONS} />
           <RegistryTagPicker label="Chems/alcohol used" value={form.chemsAlcoholUsed} onChange={set("chemsAlcoholUsed")} T={T} registry={ChemsRegistry} />
         </SectionCard>
+
         <SectionCard title="Protection & medication context" T={T}>
           <RegistryTagPicker label="Protection used" value={form.protectionUsed} onChange={set("protectionUsed")} T={T} registry={ProtectionRegistry} />
           <SelectField label="My PrEP coverage" value={form.myPrepCoverage} onChange={set("myPrepCoverage")} options={PREP_COVERAGE_OPTIONS} T={T} />
           <SelectField label="My DoxyPEP status" value={form.myDoxyPepStatus} onChange={set("myDoxyPepStatus")} options={DOXYPEP_STATUS_OPTIONS} T={T} />
         </SectionCard>
+
         <SectionCard title="Health" T={T}>
           <RegistryTagPicker label="Symptoms noted" value={form.symptomsNoted} onChange={set("symptomsNoted")} T={T} registry={SymptomsRegistry} />
         </SectionCard>
+
         <SectionCard title="Location" T={T}>
           <RegistrySinglePicker label="Location" value={form.locationId} onChange={set("locationId")} T={T} registry={LocationsRepository} placeholder="e.g. His place, Sauna" />
         </SectionCard>
+
         <SectionCard title="Notes" T={T}>
           <textarea value={form.notes} onChange={(e) => set("notes")(e.target.value)} rows={4}
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box", marginTop: 8 }} />
@@ -526,30 +564,33 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
   );
 }
 
+// ── Top-level module component — same shape as the Contacts/Medication
+// top-level components, so App.jsx's switcher can drop this in directly. ──
 export default function EncountersModule() {
   const [screen, setScreen] = useState({ name: "landing" });
-  return (
-    <div style={{ fontFamily: "'Public Sans', sans-serif", background: LIGHT.bg, minHeight: "100vh", display: "flex", justifyContent: "center" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');`}</style>
-      <div style={{ width: 390, background: LIGHT.bg, minHeight: "100vh", borderLeft: `1px solid ${LIGHT.border}`, borderRight: `1px solid ${LIGHT.border}` }}>
-        {screen.name === "landing" && (
-          <ActivityLanding T={LIGHT} onOpenEncounter={(id) => setScreen({ name: "detail", id })} onAdd={() => setScreen({ name: "edit", id: null })} />
-        )}
-        {screen.name === "detail" && (
-          <ActivityDetails T={LIGHT} encounterId={screen.id} onBack={() => setScreen({ name: "landing" })} onEdit={(id) => setScreen({ name: "edit", id })} />
-        )}
-        {screen.name === "edit" && (
-          <EncounterEditSheet T={LIGHT} encounterId={screen.id}
-            onClose={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
-            onSaved={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })} />
-        )}
-        <div style={{ position: "fixed", bottom: 0, width: 390, background: LIGHT.surface, borderTop: `1px solid ${LIGHT.border}`, display: "flex", justifyContent: "space-around", padding: "10px 0 14px" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-            <Users size={22} color={LIGHT.navActive} strokeWidth={2.5} />
-            <span style={{ fontSize: 10, color: LIGHT.navActive, fontWeight: 600 }}>Activity</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+
+  if (screen.name === "landing") {
+    return (
+      <>
+        <ActivityLanding T={LIGHT}
+          onOpenEncounter={(id) => setScreen({ name: "detail", id })}
+          onAdd={() => setScreen({ name: "edit", id: null })} />
+      </>
+    );
+  }
+  if (screen.name === "detail") {
+    return (
+      <ActivityDetails T={LIGHT} encounterId={screen.id}
+        onBack={() => setScreen({ name: "landing" })}
+        onEdit={(id) => setScreen({ name: "edit", id })} />
+    );
+  }
+  if (screen.name === "edit") {
+    return (
+      <EncounterEditSheet T={LIGHT} encounterId={screen.id}
+        onClose={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
+        onSaved={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })} />
+    );
+  }
+  return null;
 }

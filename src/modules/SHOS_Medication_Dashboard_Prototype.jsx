@@ -3,9 +3,9 @@ import { Plus, AlertTriangle, Check, RefreshCcw, Pill, Search, Home, Users, Acti
 // The dashboard no longer owns its own medication/log data — it reads and
 // writes through these two repositories instead. Nothing about how the UI
 // looks or behaves changes; this just moves WHERE the facts actually live.
-import { MedicationRepository } from "./medicationRepository";
-import { LogRepository } from "./logRepository";
-import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut } from "./medicationCalculations";
+import { MedicationRepository } from "../repositories/medicationRepository";
+import { LogRepository } from "../repositories/logRepository";
+import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut } from "../calculations/medicationCalculations";
 
 const LIGHT = {
   // bg deepened from #FAFAFA — at that value it was nearly indistinguishable from surface (#FFFFFF),

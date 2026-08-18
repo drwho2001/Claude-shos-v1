@@ -26,7 +26,7 @@
 // file. Kept synchronous on purpose — see the note further down on why
 // this doesn't need to be async yet.
 
-import { localStorageAdapter as storage } from "./storageAdapter.js";
+import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_contacts";
 
@@ -204,14 +204,65 @@ function generateContactId() {
 // are the only places that actually change what's stored.
 // ---------------------------------------------------------------------
 
+// ADDED 18 Aug 2026 — statedKinks changed shape: was a flat array of
+// Kink Registry IDs (["kink_004"]), is now an array of selections
+// ({kinkId, role}) so a role (Top/Bottom/Vers) can optionally attach to
+// each one — Kane's real ask: whether someone's a fisting top or bottom
+// changes his own future-meet intentions, so it needs tracking, but
+// only some kinks need it and it's optional even for those. This helper
+// is the migration: a contact saved before this change stored plain
+// strings; a contact saved after stores objects. Reading through this
+// on every getAll()/getById() means BOTH shapes silently normalize to
+// the current one every time, forever — no one-off migration script
+// ever needs to run, and no old data becomes unreadable.
+// `limits`/`knownChems` deliberately stay plain ID arrays — a role
+// doesn't mean anything for a limit (something explicitly not wanted),
+// and Kane didn't ask for it there.
+function normalizeKinkSelections(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((entry) => {
+    if (typeof entry === "string") return { kinkId: entry, role: null };
+    if (entry && typeof entry === "object" && entry.kinkId) {
+      return { kinkId: entry.kinkId, role: entry.role ?? null };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
 export const ContactRepository = {
+  // CHANGED 18 Aug 2026 — getAll()/getById() now merge each raw stored
+  // record over DEFAULT_CONTACT before returning it, not just clone it
+  // as-is. This is the fix for a real, confirmed gap Kane raised: every
+  // repository except MyProfileRepository was returning contacts exactly
+  // as they were stored, with nothing filling in fields that didn't
+  // exist yet when that record was created. Concretely: bdsmRole and
+  // sexualPosition were added to this file after Contacts had already
+  // been in real use — any contact record saved before that point would
+  // load back with those fields simply MISSING, not empty-array, and
+  // the edit sheet's `.includes()` calls on them would throw. This
+  // wasn't hypothetical; it was a live latent bug waiting for exactly
+  // this kind of addition. The fix: any field DEFAULT_CONTACT knows
+  // about but a stored record predates now silently fills in as that
+  // field's default the moment it's read, every time, forever forward —
+  // adding a new field to DEFAULT_CONTACT is now automatically safe for
+  // every contact saved by every earlier version of the app.
+  // Also now runs statedKinks through normalizeKinkSelections() (see
+  // above) so old flat-ID-array contacts and new role-aware contacts
+  // both read back in the current shape.
   getAll() {
-    return structuredClone(contacts);
+    return structuredClone(
+      contacts.map((c) => {
+        const merged = { ...DEFAULT_CONTACT, ...c };
+        return { ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks) };
+      })
+    );
   },
 
   getById(id) {
     const found = contacts.find((c) => c.id === id);
-    return found ? structuredClone(found) : null;
+    if (!found) return null;
+    const merged = { ...DEFAULT_CONTACT, ...found };
+    return structuredClone({ ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks) });
   },
 
   create(data) {

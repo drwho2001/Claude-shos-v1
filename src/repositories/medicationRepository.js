@@ -28,7 +28,7 @@
 // async conversion until a genuinely async backend is real, not
 // hypothetical.
 
-import { localStorageAdapter as storage } from "./storageAdapter.js";
+import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_medications";
 
@@ -155,20 +155,39 @@ function generateMedicationId() {
 // The repository itself — this is what the rest of the app talks to.
 // ---------------------------------------------------------------------
 
+// ---------------------------------------------------------------------
+// Read-side default shape — added 18 Aug 2026, same fix applied across
+// every repository this session (see contactRepository.js for the full
+// reasoning). This file never had a formal "spread a DEFAULT object"
+// pattern the way Contacts did — create() lists each field explicitly
+// with its own `??` fallback instead — so this is added purely for the
+// read side (getAll/getById), without touching create()'s existing,
+// already-verified behavior at all. Same effect either way: a
+// medication saved before some future field existed will read back
+// with that field defaulted, not missing.
+const DEFAULT_MEDICATION = {
+  name: "", unit: "", usagePattern: "daily",
+  dosesPerDay: null, unitsPerDose: 1,
+  inventoryTracked: true, unitsPerContainer: 0,
+  refillThreshold: 0, defaultRefillQuantity: 0,
+  usualSupplier: "", refillRequestedAt: null,
+  isArchived: false, sortOrder: 0,
+};
+
 export const MedicationRepository = {
   // Every medication, active and archived alike. Screens that only want
   // active ones (e.g. the Registry tab) filter on isArchived themselves —
   // the repository just hands back the facts, it doesn't decide what a
   // screen should show.
   getAll() {
-    return structuredClone(medications);
+    return structuredClone(medications.map((m) => ({ ...DEFAULT_MEDICATION, ...m })));
   },
 
   // A single medication by its id, or null if it doesn't exist. Returns
   // a copy, not the live stored object — same reasoning as getAll().
   getById(id) {
     const found = medications.find((m) => m.id === id);
-    return found ? structuredClone(found) : null;
+    return found ? structuredClone({ ...DEFAULT_MEDICATION, ...found }) : null;
   },
 
   // Creates a new medication. Fills in the id, isArchived, and sortOrder

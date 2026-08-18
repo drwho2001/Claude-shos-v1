@@ -23,7 +23,7 @@
 // simplification, flagged here rather than silently narrowed. Revisit
 // as a real array if a location ever needs multiple linked contacts.
 
-import { localStorageAdapter as storage } from "./storageAdapter.js";
+import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_locations";
 
@@ -66,18 +66,20 @@ function generateLocationId() {
 }
 
 export const LocationsRepository = {
+  // CHANGED 18 Aug 2026 — same defensive-merge fix as every other
+  // repository this session.
   getAll() {
-    return structuredClone(locations);
+    return structuredClone(locations.map((l) => ({ ...DEFAULT_LOCATION, ...l })));
   },
 
   getById(id) {
     const found = locations.find((l) => l.id === id);
-    return found ? structuredClone(found) : null;
+    return found ? structuredClone({ ...DEFAULT_LOCATION, ...found }) : null;
   },
 
   getByName(name) {
     const found = locations.find((l) => l.name.toLowerCase() === name.toLowerCase());
-    return found ? structuredClone(found) : null;
+    return found ? structuredClone({ ...DEFAULT_LOCATION, ...found }) : null;
   },
 
   create(data) {

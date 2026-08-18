@@ -14,15 +14,23 @@
 // its data, one line to restore it. Nothing else in the app needs to
 // know backup/restore exists.
 
-import { ContactRepository } from "./contactRepository.js";
-import { MedicationRepository } from "./medicationRepository.js";
-import { LogRepository } from "./logRepository.js";
-import { EncounterRepository } from "./encounterRepository.js";
-import { KinkRegistry } from "./kinkRegistry.js";
-import { ChemsRegistry } from "./chemsRegistry.js";
-import { ProtectionRegistry } from "./protectionRegistry.js";
-import { SymptomsRegistry } from "./symptomsRegistry.js";
-import { LocationsRepository } from "./locationsRepository.js";
+import { ContactRepository } from "../repositories/contactRepository.js";
+import { MedicationRepository } from "../repositories/medicationRepository.js";
+import { LogRepository } from "../repositories/logRepository.js";
+import { EncounterRepository } from "../repositories/encounterRepository.js";
+import { KinkRegistry } from "../registries/kinkRegistry.js";
+import { ChemsRegistry } from "../registries/chemsRegistry.js";
+import { ProtectionRegistry } from "../registries/protectionRegistry.js";
+import { SymptomsRegistry } from "../registries/symptomsRegistry.js";
+import { LocationsRepository } from "../repositories/locationsRepository.js";
+// Added 18 Aug 2026, same session as My Profile's build: Kane confirmed
+// a full backup should also snapshot "My Profile" state at that point
+// in time — this was the one open question flagged when My Profile
+// shipped. MyProfileRepository is a SINGLETON (one record, not a list)
+// so it doesn't fit the getAll()/replaceAll(array) shape every other
+// module here uses — handled as a single object under data.myProfile,
+// with its own type checks below rather than Array.isArray().
+import { MyProfileRepository } from "../repositories/myProfileRepository.js";
 
 // Doc 5 §8: "Every export/backup file stamps: schema version, migration
 // version, app version." Schema version bumps only when a backup file's
@@ -48,6 +56,7 @@ export function buildBackup() {
       protection: ProtectionRegistry.getAll(),
       symptoms: SymptomsRegistry.getAll(),
       locations: LocationsRepository.getAll(),
+      myProfile: MyProfileRepository.getProfile(),
     },
   };
 }
@@ -77,7 +86,7 @@ export function parseBackupFile(jsonText) {
 // contact was edited in both places?) that isn't needed yet for a
 // single-device, single-user app.
 export function restoreBackup(parsedBackup) {
-  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations } = parsedBackup.data;
+  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile } = parsedBackup.data;
   if (Array.isArray(contacts)) ContactRepository.replaceAll(contacts);
   if (Array.isArray(medications)) MedicationRepository.replaceAll(medications);
   if (Array.isArray(logs)) LogRepository.replaceAll(logs);
@@ -87,6 +96,14 @@ export function restoreBackup(parsedBackup) {
   if (Array.isArray(protection)) ProtectionRegistry.replaceAll(protection);
   if (Array.isArray(symptoms)) SymptomsRegistry.replaceAll(symptoms);
   if (Array.isArray(locations)) LocationsRepository.replaceAll(locations);
+  // Not Array.isArray — MyProfile is a singleton object, not a list.
+  // Older backup files (from before 18 Aug 2026) simply won't have a
+  // myProfile key at all, so this quietly no-ops on those rather than
+  // erroring — restoring an old backup still works, it just leaves
+  // whatever profile is already there untouched.
+  if (myProfile && typeof myProfile === "object" && !Array.isArray(myProfile)) {
+    MyProfileRepository.replaceAll(myProfile);
+  }
 }
 
 // ---------------------------------------------------------------------
