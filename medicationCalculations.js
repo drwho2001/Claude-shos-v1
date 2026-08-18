@@ -1,0 +1,123 @@
+// medicationCalculations.js
+//
+// PLAIN-LANGUAGE PURPOSE
+// -----------------------
+// This file has no memory of its own — it never stores or fetches
+// anything. Every function here just takes numbers/data in and returns
+// an answer out, the same way a calculator does. That's what makes it
+// "pure": call it twice with the same input, get the same answer both
+// times, with nothing else in the app affected either way.
+//
+// This is what Doc 5 means by "store facts, derive state" — Current
+// Stock, Adherence, and Next Dose are never saved anywhere. They're
+// worked out fresh from the log history every time they're needed.
+// That's also why fixing a mis-logged entry (editing or voiding it in
+// LogRepository) automatically makes every number here correct again,
+// with no special-case "recalculate everything" step required anywhere.
+//
+// None of the logic below changed during this extraction — it's the
+// exact same functions that used to live directly inside the dashboard
+// component file, just moved here so they can be reused, tested, or
+// reasoned about on their own.
+
+// Days-remaining, dropping to hours/minutes under 1 day — so the display
+// keeps counting down meaningfully right as stock actually runs low,
+// instead of flooring to "0d remaining" and going silent.
+export function formatRemaining(daysExact) {
+  if (daysExact >= 1) return `${Math.floor(daysExact)}d remaining`;
+  const totalMinutes = Math.max(0, Math.round(daysExact * 24 * 60));
+  if (totalMinutes >= 60) return `~${Math.round(totalMinutes / 60)}h remaining`;
+  return `~${totalMinutes}m remaining`;
+}
+
+// Works out a medication's current stock and whether it needs a refill,
+// from its log history alone. `med` here is expected to already have its
+// `logs` array attached (see loadMedications() in the dashboard file) —
+// this function doesn't know or care where those logs actually came from.
+export function computeStock(med) {
+  if (!med.inventoryTracked) return { tracked: false };
+  const currentStock = med.logs.filter((l) => !l.voided).reduce((sum, l) => sum + l.delta, 0);
+  const needsAction = currentStock <= med.refillThreshold;
+  let supplementary;
+  if (med.usagePattern === "prn") {
+    const dosesRemaining = med.unitsPerDose > 0 ? Math.floor(currentStock / med.unitsPerDose) : null;
+    supplementary = `${dosesRemaining} doses left · ${Math.ceil(currentStock / med.unitsPerContainer)} containers`;
+  } else {
+    const dailyConsumption = med.unitsPerDose * med.dosesPerDay;
+    const daysRemainingExact = dailyConsumption > 0 ? currentStock / dailyConsumption : null;
+    supplementary = daysRemainingExact !== null ? formatRemaining(daysRemainingExact) : "—";
+  }
+  const range = med.defaultRefillQuantity || med.refillThreshold || 1;
+  const barPct = Math.max(0, Math.min(100, ((currentStock - med.refillThreshold) / range) * 100));
+  return { tracked: true, currentStock, needsAction, supplementary, barPct };
+}
+
+// Small helper used only by computeAdherence below — how many of the last
+// N days had a logged dose.
+function windowStats(doseDays, days, today) {
+  let expected = 0, hit = 0;
+  for (let i = 0; i < days; i++) {
+    const day = new Date(today); day.setDate(day.getDate() - i);
+    expected += 1;
+    if (doseDays.has(day.getTime())) hit += 1;
+  }
+  return { hit, expected, pct: Math.round((hit / expected) * 100) };
+}
+
+// PRN never gets adherence — there's no schedule to measure against, so
+// the concept doesn't apply. "Since refill" replaces a fixed 30-day
+// window: measured from the most recent Refill log entry, a more
+// meaningful baseline than an arbitrary calendar cut.
+export function computeAdherence(med) {
+  if (med.usagePattern === "prn") return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const doseDays = new Set(med.logs.filter((l) => l.type === "dose" && !l.voided).map((l) => { const d = new Date(l.date); d.setHours(0, 0, 0, 0); return d.getTime(); }));
+
+  let streak = 0;
+  for (let i = 0; i < 365; i++) { const day = new Date(today); day.setDate(day.getDate() - i); if (doseDays.has(day.getTime())) streak += 1; else break; }
+
+  const sevenDay = windowStats(doseDays, 7, today);
+
+  const lastRefill = [...med.logs].filter((l) => l.type === "refill" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  let sinceRefill;
+  if (lastRefill) {
+    const refillDay = new Date(lastRefill.date); refillDay.setHours(0, 0, 0, 0);
+    const daysSince = Math.max(1, Math.round((today.getTime() - refillDay.getTime()) / 86400000) + 1);
+    sinceRefill = windowStats(doseDays, daysSince, today);
+  } else {
+    sinceRefill = sevenDay;
+  }
+
+  return { streak, sevenDay, sinceRefill };
+}
+
+// New 18 Aug 2026, per Kane's ask: prevents accidentally logging the
+// same daily dose twice in one day. Locked out until 80% of the dosing
+// interval has passed since the last dose — for a once-daily medication
+// (24h interval), that's ~19.2h, meaning the button unlocks again only
+// in roughly the last ~4.8h before the next dose is actually due ("~4h
+// early at the earliest", per Kane's own rounding). PRN and Custom
+// Schedule medications are never locked — there's no fixed interval to
+// measure against for PRN, and Custom Schedule doesn't have a UI to
+// build this against yet (Doc 5 §5 already flags Custom Schedule as
+// editable-later, not editable-now).
+export function isDoseLockedOut(med, lastDoseDate) {
+  if (!lastDoseDate || med.usagePattern !== "daily" || !med.dosesPerDay) return false;
+  const intervalHours = 24 / med.dosesPerDay;
+  const hoursSinceLastDose = (Date.now() - new Date(lastDoseDate).getTime()) / 3600000;
+  return hoursSinceLastDose < intervalHours * 0.8;
+}
+
+
+// Estimated time until the next dose is due, from the last dose taken and
+// the medication's dosing frequency. Returns null for PRN (no schedule)
+// or when there's no last dose to count forward from yet.
+export function nextDoseEstimate(med, lastDoseDate) {
+  if (!lastDoseDate || med.usagePattern === "prn" || !med.dosesPerDay) return null;
+  const intervalHours = 24 / med.dosesPerDay;
+  const next = new Date(new Date(lastDoseDate).getTime() + intervalHours * 3600000);
+  const hoursLeft = Math.round((next.getTime() - Date.now()) / 3600000);
+  if (hoursLeft <= 0) return "due now";
+  if (hoursLeft < 24) return `~${hoursLeft}h`;
+  return `~${Math.round(hoursLeft / 24)}d`;
+}
