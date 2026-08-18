@@ -10,21 +10,21 @@ import {
   LENGTH_OPTIONS, THICKNESS_OPTIONS, FORESKIN_OPTIONS, CHASTITY_OPTIONS, CUMMER_OPTIONS,
   PREP_DOXY_OPTIONS, DAYS_OF_WEEK, TIME_CONSTRAINT_TYPES, AVAILABILITY_RULE_TYPES,
   BDSM_ROLE_OPTIONS, SEXUAL_POSITION_OPTIONS,
-} from "./contactRepository";
-import { getKnownCities, getKnownValues, getCompletenessScore, getContactableVia, normalizeTag } from "./contactCalculations";
+} from "../repositories/contactRepository";
+import { getKnownCities, getKnownValues, getCompletenessScore, getContactableVia, normalizeTag } from "../calculations/contactCalculations";
 // New 18 Aug 2026: Encounters module now exists, so the Timeline
 // section below can read real data instead of showing the "not built
 // yet" stub. Read-only from Contacts' side — Contacts never writes to
 // EncounterRepository, matching the one-directional storage documented
 // in encounterRepository.js (Encounter holds attendeeIds, Contact-side
 // numbers are calculated, never duplicated back onto the Contact record).
-import { EncounterRepository } from "./encounterRepository";
-import { contactEncounterSummary, sortByDateDesc, formatRelativeDate } from "./encounterCalculations";
+import { EncounterRepository } from "../repositories/encounterRepository";
+import { contactEncounterSummary, sortByDateDesc, formatRelativeDate } from "../calculations/encounterCalculations";
 // New 18 Aug 2026: Kink Registry and Chems Registry now exist as real
 // modules — Stated kinks/Limits/Known chems below switch from freeform
 // TagInput to real registry-linked pickers.
-import { KinkRegistry } from "./kinkRegistry";
-import { ChemsRegistry } from "./chemsRegistry";
+import { KinkRegistry, KINK_ROLE_OPTIONS } from "../registries/kinkRegistry";
+import { ChemsRegistry } from "../registries/chemsRegistry";
 
 const LIGHT = {
   bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
@@ -324,26 +324,77 @@ function TagInput({ label, value, onChange, T, placeholder, suggestions = [] }) 
 // what actually closes the "Fist vs Fisting" gap TagInput's own comment
 // flagged as unsolved — one canonical registry entry per concept,
 // found case-insensitively or created new via findOrCreate.
-function RegistryTagPicker({ label, value, onChange, T, registry, placeholder }) {
+function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [] }) {
   const [draft, setDraft] = useState("");
   const listId = idFromLabel(label) + "-registry";
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
   const nameFor = (id) => allEntries.find((e) => e.id === id)?.name || registry.getById(id)?.name || "?";
-  const visibleSuggestions = allEntries.filter((e) => !value.includes(e.id)).slice(0, 10);
 
+  // ADDED 18 Aug 2026 — trackRole mode: `value` becomes an array of
+  // {kinkId, role} selections instead of plain registry IDs, so an
+  // optional role (e.g. Top/Bottom/Vers) can attach to a specific
+  // selection — Kane's real ask: whether someone's a fisting top or
+  // bottom changes his own future-meet intentions, worth tracking, but
+  // optional even where it applies. Everything below branches on
+  // trackRole once, here, so the rest of the logic doesn't repeat it.
+  const selectedIds = trackRole ? value.map((v) => v.kinkId) : value;
+  const hasSelection = (id) => selectedIds.includes(id);
+
+  // CHANGED 18 Aug 2026 — also excludes excludeIds now: passed by the
+  // edit sheet as "whatever's already in the sibling field" (Stated
+  // Kinks excludes Limits' picks and vice versa). Kane's real feedback:
+  // something already marked as a kink shouldn't turn up as a suggested
+  // limit. Only affects what's SUGGESTED — typing the exact same name
+  // manually into both fields still works, since forcing that apart is
+  // a much rarer edge case not worth hard-blocking.
+  const visibleSuggestions = allEntries.filter((e) => !hasSelection(e.id) && !excludeIds.includes(e.id)).slice(0, 10);
+
+  const addEntries = (ids) => {
+    if (ids.length === 0) return;
+    if (trackRole) onChange([...value, ...ids.map((id) => ({ kinkId: id, role: null }))]);
+    else onChange([...value, ...ids]);
+  };
+  const removeEntry = (id) => {
+    if (trackRole) onChange(value.filter((v) => v.kinkId !== id));
+    else onChange(value.filter((v) => v !== id));
+  };
+  // Tapping a selection's role badge cycles: no role -> first
+  // roleOption -> next -> ... -> back to no role. Matches the app's
+  // existing "tap to cycle" pattern (e.g. availability rule type
+  // toggles) rather than opening a separate dropdown for one value.
+  const cycleRole = (id) => {
+    if (!trackRole) return;
+    onChange(value.map((v) => {
+      if (v.kinkId !== id) return v;
+      const currentIndex = v.role ? roleOptions.indexOf(v.role) : -1;
+      const nextRole = currentIndex + 1 < roleOptions.length ? roleOptions[currentIndex + 1] : null;
+      return { ...v, role: nextRole };
+    }));
+  };
+
+  // CHANGED 18 Aug 2026 — real bug fix: typing "fisting, gooning, piss"
+  // used to become ONE registry entry literally named that whole
+  // string, because this function never split on commas the way the
+  // free-text TagInput elsewhere in the app already does. Now splits
+  // and resolves each piece through the registry independently.
   const commitDraft = (el) => {
     const raw = draft.trim();
     if (!raw) {
       if (el) focusNextField(el);
       return;
     }
-    const entry = registry.findOrCreate(normalizeTag(raw));
-    if (entry && !value.includes(entry.id)) onChange([...value, entry.id]);
+    const parts = raw.split(",").map((t) => normalizeTag(t.trim())).filter(Boolean);
+    const newIds = [];
+    parts.forEach((part) => {
+      const entry = registry.findOrCreate(part);
+      if (entry && !hasSelection(entry.id) && !newIds.includes(entry.id)) newIds.push(entry.id);
+    });
+    addEntries(newIds);
     setDraft("");
   };
 
   const tapSuggestion = (entry) => {
-    if (!value.includes(entry.id)) onChange([...value, entry.id]);
+    if (!hasSelection(entry.id)) addEntries([entry.id]);
   };
 
   return (
@@ -351,24 +402,30 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder })
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
       {value.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-          {value.map((id) => (
-            <div key={id} onClick={() => onChange(value.filter((v) => v !== id))}
-              style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, background: T.surfaceVariant, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-              {nameFor(id)} <X size={11} />
+          {(trackRole ? value : value.map((id) => ({ kinkId: id, role: null }))).map((sel) => (
+            <div key={sel.kinkId}
+              style={{ display: "flex", alignItems: "center", borderRadius: radius.full, background: T.surfaceVariant, overflow: "hidden" }}>
+              <div onClick={() => removeEntry(sel.kinkId)}
+                style={{ padding: "4px 8px", fontSize: 12, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                {nameFor(sel.kinkId)} <X size={11} />
+              </div>
+              {trackRole && (
+                <div onClick={() => cycleRole(sel.kinkId)}
+                  style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderLeft: `1px solid ${T.border}`, color: sel.role ? T.contactsTeal : T.textDisabled }}>
+                  {sel.role || "+ role"}
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
-      <input list={listId} value={draft} onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitDraft(e.target); } }}
-        onBlur={() => commitDraft(null)}
-        placeholder={placeholder || "Pick existing or type a new one"}
-        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
-      <datalist id={listId}>
-        {allEntries.map((e) => <option key={e.id} value={e.name} />)}
-      </datalist>
+      {/* CHANGED 18 Aug 2026 — suggestions now render ABOVE the input,
+          not below. Kane's real feedback: on a phone, the on-screen
+          keyboard covers whatever's below the input the moment you tap
+          in to type, so these chips were invisible exactly when they'd
+          be useful. */}
       {visibleSuggestions.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
           {visibleSuggestions.map((e) => (
             <div key={e.id} onClick={() => tapSuggestion(e)}
               style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.contactsTeal}`, color: T.contactsTeal, cursor: "pointer" }}>
@@ -377,6 +434,14 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder })
           ))}
         </div>
       )}
+      <input list={listId} value={draft} onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitDraft(e.target); } }}
+        onBlur={() => commitDraft(null)}
+        placeholder={placeholder || "Pick existing or type new ones, comma-separated"}
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
+      <datalist id={listId}>
+        {allEntries.map((e) => <option key={e.id} value={e.name} />)}
+      </datalist>
     </div>
   );
 }
@@ -692,8 +757,8 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
         </SectionCard>
 
         <SectionCard T={T} title="Kink">
-          <RegistryTagPicker T={T} label="Stated kinks" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} />
-          <RegistryTagPicker T={T} label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} />
+          <RegistryTagPicker T={T} label="Stated kinks" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} excludeIds={form.limits} trackRole roleOptions={KINK_ROLE_OPTIONS} />
+          <RegistryTagPicker T={T} label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} excludeIds={form.statedKinks.map((s) => s.kinkId)} />
           <MultiSelectChips T={T} label="Role" value={form.bdsmRole} onChange={set("bdsmRole")} options={BDSM_ROLE_OPTIONS} />
           <MultiSelectChips T={T} label="Position" value={form.sexualPosition} onChange={set("sexualPosition")} options={SEXUAL_POSITION_OPTIONS} />
         </SectionCard>
@@ -854,7 +919,10 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </SectionCard>
 
         <SectionCard T={T} title="Kink">
-          <ReadRow T={T} label="Stated kinks" value={contact.statedKinks.map((id) => KinkRegistry.getById(id)?.name).filter(Boolean)} />
+          <ReadRow T={T} label="Stated kinks" value={contact.statedKinks.map((sel) => {
+            const name = KinkRegistry.getById(sel.kinkId)?.name;
+            return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+          }).filter(Boolean)} />
           <ReadRow T={T} label="Limits" value={contact.limits.map((id) => KinkRegistry.getById(id)?.name).filter(Boolean)} />
           <ReadRow T={T} label="Role" value={contact.bdsmRole} />
           <ReadRow T={T} label="Position" value={contact.sexualPosition} />
@@ -977,7 +1045,7 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
       ? activeContacts.filter((c) =>
           [c.name, c.nickname, c.phone, c.snapchat, c.fabguys, c.fabswingers, c.notes]
             .some((field) => (field || "").toLowerCase().includes(q))
-          || [...c.statedKinks, ...c.limits]
+          || [...c.statedKinks.map((s) => s.kinkId), ...c.limits]
               .map((id) => KinkRegistry.getById(id)?.name || "")
               .some((name) => name.toLowerCase().includes(q))
         )

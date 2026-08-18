@@ -28,7 +28,7 @@
 // ago" shouldn't silently drift to a different date every time the app
 // reloads once it's real, saved data.
 
-import { localStorageAdapter as storage } from "./storageAdapter.js";
+import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_logs";
 

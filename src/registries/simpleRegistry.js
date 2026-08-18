@@ -27,7 +27,7 @@
 // for that case. Don't stretch this factory to fit it; write that one
 // by hand instead, the same way Locations does.
 
-import { localStorageAdapter as storage } from "./storageAdapter.js";
+import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 // config: { storageKey, idPrefix, seedNames }
 // Returns a registry object: getAll/getById/getByName/create/update/
@@ -66,13 +66,18 @@ export function createSimpleRegistry({ storageKey, idPrefix, seedNames = [] }) {
   }
 
   return {
+    // CHANGED 18 Aug 2026 — same defensive-merge fix as every other
+    // repository this session. Fixes this once, here, and every
+    // registry built on this factory (Kink/Chems/Protection/Symptoms)
+    // gets the protection automatically — this is exactly the kind of
+    // shared-abstraction payoff the factory was extracted for.
     getAll() {
-      return structuredClone(entries);
+      return structuredClone(entries.map((e) => ({ ...DEFAULT_ENTRY, ...e })));
     },
 
     getById(id) {
       const found = entries.find((e) => e.id === id);
-      return found ? structuredClone(found) : null;
+      return found ? structuredClone({ ...DEFAULT_ENTRY, ...found }) : null;
     },
 
     // Case-insensitive exact match — used by the shared RegistryPicker
@@ -80,7 +85,7 @@ export function createSimpleRegistry({ storageKey, idPrefix, seedNames = [] }) {
     // duplicate when someone types a new tag.
     getByName(name) {
       const found = entries.find((e) => e.name.toLowerCase() === name.toLowerCase());
-      return found ? structuredClone(found) : null;
+      return found ? structuredClone({ ...DEFAULT_ENTRY, ...found }) : null;
     },
 
     create(data) {
