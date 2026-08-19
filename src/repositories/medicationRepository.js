@@ -165,6 +165,14 @@ function generateMedicationId() {
 // already-verified behavior at all. Same effect either way: a
 // medication saved before some future field existed will read back
 // with that field defaulted, not missing.
+// ADDED 19 Aug 2026 — real gaps found in the Notion-vs-app audit, Kane
+// confirmed both wanted: `route` (administration route — matters for
+// injectables specifically, e.g. IM-Gluteal vs SubQ) and `dosePerUnit`
+// (the strength of a single unit, e.g. "245mg" — distinct from
+// unitsPerDose, which is how many units make up one dose, not how
+// strong each unit is).
+export const ROUTE_OPTIONS = ["Oral", "IM - Gluteal", "IM - Deltoid", "SubQ"];
+
 const DEFAULT_MEDICATION = {
   name: "", unit: "", usagePattern: "daily",
   dosesPerDay: null, unitsPerDose: 1,
@@ -172,6 +180,7 @@ const DEFAULT_MEDICATION = {
   refillThreshold: 0, defaultRefillQuantity: 0,
   usualSupplier: "", refillRequestedAt: null,
   isArchived: false, sortOrder: 0,
+  route: "", dosePerUnit: "",
 };
 
 export const MedicationRepository = {
@@ -209,6 +218,8 @@ export const MedicationRepository = {
       refillRequestedAt: null,
       isArchived: false,
       sortOrder: medications.length,
+      route: data.route ?? "",
+      dosePerUnit: data.dosePerUnit ?? "",
     };
     medications = [...medications, newMedication];
     persist();

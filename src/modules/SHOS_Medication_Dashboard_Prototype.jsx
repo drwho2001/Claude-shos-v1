@@ -1,11 +1,11 @@
-import React, { useState, useMemo, useRef } from "react";
-import { Plus, AlertTriangle, Check, RefreshCcw, Pill, Search, Home, Users, Activity, HeartPulse, Settings as SettingsIcon, Settings2, X, Moon, Sun, Trash2, Flame, Send, Clock, MoreVertical, ListChecks, ArrowUp, ArrowDown, Archive, ArchiveRestore } from "lucide-react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import { Plus, AlertTriangle, Check, RefreshCcw, Pill, Search, Settings as SettingsIcon, Settings2, X, Moon, Sun, Trash2, Flame, Send, Clock, MoreVertical, ListChecks, ArrowUp, ArrowDown, Archive, ArchiveRestore } from "lucide-react";
 // The dashboard no longer owns its own medication/log data — it reads and
 // writes through these two repositories instead. Nothing about how the UI
 // looks or behaves changes; this just moves WHERE the facts actually live.
-import { MedicationRepository } from "../repositories/medicationRepository";
+import { MedicationRepository, ROUTE_OPTIONS } from "../repositories/medicationRepository";
 import { LogRepository } from "../repositories/logRepository";
-import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut } from "../calculations/medicationCalculations";
+import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut, lockoutEndsEstimate } from "../calculations/medicationCalculations";
 
 const LIGHT = {
   // bg deepened from #FAFAFA — at that value it was nearly indistinguishable from surface (#FFFFFF),
@@ -103,10 +103,10 @@ function HoldButton({ onStep, dir, children, style }) {
 
 function StatTile({ label, value, tint, subtitle, onClick, T }) {
   return (
-    <div onClick={onClick} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: radius.md, padding: "14px 16px", minWidth: 150, flex: "0 0 auto", cursor: onClick ? "pointer" : "default" }}>
+    <div onClick={onClick} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: radius.md, padding: "14px 16px", flex: "1 1 0", minWidth: 0, cursor: onClick ? "pointer" : "default" }}>
       <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 22, fontWeight: 600, color: tint || T.textPrimary }}>{value}</div>
       <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 2 }}>{label}</div>
-      {subtitle && <div style={{ fontSize: 11, color: tint || T.textSecondary, marginTop: 3, fontWeight: 600 }}>{subtitle}</div>}
+      {subtitle && <div style={{ fontSize: 11, color: tint || T.textSecondary, marginTop: 3, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
     </div>
   );
 }
@@ -130,6 +130,21 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
   const requested = !!med.refillRequestedAt;
   const nextDose = lastDose ? nextDoseEstimate(med, lastDose.date) : null;
   const doseLocked = lastDose ? isDoseLockedOut(med, lastDose.date) : false;
+  // ADDED 18 Aug 2026 — real feedback: a native `disabled` button blocks
+  // the click entirely, so the `title` tooltip explaining the lockout
+  // was the ONLY feedback — and title tooltips need hover, which
+  // doesn't exist on a touchscreen. Kane's ask: keep it tappable while
+  // locked, show a brief message instead of nothing, no confirmation
+  // needed. This local flash state does exactly that.
+  const [lockFlash, setLockFlash] = useState(false);
+  const handleLogTap = () => {
+    if (doseLocked) {
+      setLockFlash(true);
+      setTimeout(() => setLockFlash(false), 1800);
+      return;
+    }
+    onLogDose(med.id);
+  };
 
   return (
     <div ref={cardRef} style={{ position: "relative", background: T.surface, border: `1px solid ${highlighted ? T.actionRed : T.border}`, borderRadius: radius.md, padding: 16, boxShadow: highlighted ? `0 0 0 3px ${T.actionRed}33` : "0 1px 3px rgba(0,0,0,.06)", transition: "box-shadow 300ms ease, border-color 300ms ease" }}>
@@ -237,13 +252,17 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={() => !doseLocked && onLogDose(med.id)} disabled={doseLocked}
-          style={{ ...btnStyle(T.medsBlue, "outline"), opacity: doseLocked ? 0.5 : 1, cursor: doseLocked ? "default" : "pointer" }}
-          title={doseLocked ? "Too early to log again — already logged recently" : undefined}>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, position: "relative" }}>
+        <button onClick={handleLogTap}
+          style={{ ...btnStyle(T.medsBlue, "outline"), opacity: doseLocked ? 0.5 : 1 }}>
           <Pill size={14} /> {doseLocked ? "Already logged" : "Log dose"}
         </button>
         {stock.tracked && <button onClick={() => onLogRefill(med.id)} style={btnStyle(T.medsBlue, "filled")}><RefreshCcw size={14} /> Log refill</button>}
+        {lockFlash && (
+          <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 6, padding: "6px 10px", background: T.textPrimary, color: T.bg, fontSize: 11, fontWeight: 600, borderRadius: radius.sm, textAlign: "center" }}>
+            Locked until {lockoutEndsEstimate(med, lastDose?.date)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -310,12 +329,21 @@ function CorrectionSheet({ med, entry, onSave, onVoid, onClose, T }) {
         </div>
         <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 16 }}>{typeLabel} · {formatLastDose(entry.date)}</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20, marginBottom: 18 }}>
-          {amount > 1 ? <HoldButton onStep={step} dir={-1} style={stepperBtn(T)}>−</HoldButton> : <div style={{ width: 44, height: 44 }} />}
-          <input type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))}
-            style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 28, fontWeight: 600, width: 70, textAlign: "center", color: T.textPrimary, border: `1px solid ${T.border}`, borderRadius: radius.sm, background: T.surfaceVariant, padding: "4px 2px" }} />
-          <HoldButton onStep={step} dir={1} style={stepperBtn(T)}>+</HoldButton>
+          {!confirmVoid && amount > 1 ? <HoldButton onStep={step} dir={-1} style={stepperBtn(T)}>−</HoldButton> : <div style={{ width: 44, height: 44 }} />}
+          {/* CHANGED 18 Aug 2026 — real bug Kane flagged: this stayed
+              showing the original amount (e.g. "1") even after clicking
+              "void it", which doesn't reflect what voiding actually does
+              — the entry's effect goes to zero. Now shows 0, disabled,
+              struck through, once in confirm-void mode. */}
+          <input type="number" inputMode="decimal" value={confirmVoid ? 0 : amount}
+            onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))}
+            disabled={confirmVoid}
+            style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 28, fontWeight: 600, width: 70, textAlign: "center", color: confirmVoid ? T.actionRed : T.textPrimary, textDecoration: confirmVoid ? "line-through" : "none", border: `1px solid ${T.border}`, borderRadius: radius.sm, background: T.surfaceVariant, padding: "4px 2px" }} />
+          {!confirmVoid && <HoldButton onStep={step} dir={1} style={stepperBtn(T)}>+</HoldButton>}
         </div>
-        <button onClick={() => onSave(amount)} style={{ ...btnStyle(T.medsBlue, "filled"), width: "100%", padding: 12, marginBottom: 10 }}>Save correction</button>
+        {!confirmVoid && (
+          <button onClick={() => onSave(amount)} style={{ ...btnStyle(T.medsBlue, "filled"), width: "100%", padding: 12, marginBottom: 10 }}>Save correction</button>
+        )}
         {!confirmVoid ? (
           <div onClick={() => setConfirmVoid(true)} style={{ textAlign: "center", fontSize: 13, color: T.actionRed, fontWeight: 600, cursor: "pointer", padding: 6 }}>This entry was a mistake — void it</div>
         ) : (
@@ -484,9 +512,28 @@ function ToggleRow({ label, value, onChange, T }) {
   );
 }
 
+// ADDED 19 Aug 2026 — for Route, a real gap found in the Notion-vs-app
+// audit. No select component existed in this file yet (NumberField/
+// ToggleRow cover number/boolean fields only) — this is the plain
+// text-field pattern used elsewhere in this sheet, adapted to a
+// <select>, same visual language.
+function SelectRow({ label, value, onChange, options, T }) {
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 13, color: T.textPrimary, marginBottom: 6 }}>{label}</div>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }}>
+        <option value="">—</option>
+        {options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function MedicationEditSheet({ med, onSave, onClose, T }) {
   const [form, setForm] = useState({
-    name: med.name, usagePattern: med.usagePattern,
+    name: med.name, dosePerUnit: med.dosePerUnit || "", route: med.route || "",
+    usagePattern: med.usagePattern,
     dosesPerDay: med.dosesPerDay || 1, unitsPerDose: med.unitsPerDose, refillThreshold: med.refillThreshold,
     unitsPerContainer: med.unitsPerContainer || 0,
     // Default refill qty is edited in containers, stored in units — Kane's ask, matches how
@@ -512,6 +559,14 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
           <input value={form.name} onChange={(e) => set("name")(e.target.value)}
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
         </div>
+
+        {/* REORDERED 19 Aug 2026 — same reasoning as Add medication:
+            identity facts before dosing mechanics. */}
+        <div style={{ padding: "6px 0 10px" }}>
+          <input value={form.dosePerUnit} onChange={(e) => set("dosePerUnit")(e.target.value)} placeholder="Dose per unit, e.g. 245mg"
+            style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+        <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={ROUTE_OPTIONS} />
 
         <div style={{ display: "flex", background: T.surfaceVariant, borderRadius: radius.full, padding: 3, marginBottom: 12 }}>
           {["daily", "prn"].map((p) => (
@@ -552,7 +607,8 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
 // but there's no schedule-builder UI yet, so it's not offered here rather than half-supported. ──
 function AddMedicationSheet({ onCreate, onClose, T }) {
   const [form, setForm] = useState({
-    name: "", usagePattern: "daily", unitsPerDose: 1, dosesPerDay: 1,
+    name: "", dosePerUnit: "", route: "",
+    usagePattern: "daily", unitsPerDose: 1, dosesPerDay: 1,
     inventoryTracked: true, unitsPerContainer: 30, refillThreshold: 7, defaultRefillContainers: 1, usualSupplier: "",
   });
   const set = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
@@ -574,6 +630,17 @@ function AddMedicationSheet({ onCreate, onClose, T }) {
           <input value={form.name} onChange={(e) => set("name")(e.target.value)} placeholder="Medication name" autoFocus
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
         </div>
+
+        {/* REORDERED 19 Aug 2026 — Dose per unit/Route moved up here,
+            right after the name: they're identity facts about WHAT the
+            medication is and HOW it's taken, which reads more naturally
+            before the dosing-pattern/inventory mechanics below, not
+            buried after them. */}
+        <div style={{ padding: "6px 0 10px" }}>
+          <input value={form.dosePerUnit} onChange={(e) => set("dosePerUnit")(e.target.value)} placeholder="Dose per unit, e.g. 245mg"
+            style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
+        </div>
+        <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={ROUTE_OPTIONS} />
 
         <div style={{ display: "flex", background: T.surfaceVariant, borderRadius: radius.full, padding: 3, marginBottom: 12 }}>
           {["daily", "prn"].map((p) => (
@@ -625,7 +692,7 @@ function DoseReminderBanner({ med, onTake, onSnooze, onSkip, T }) {
   );
 }
 
-export default function MedicationDashboard() {
+export default function MedicationDashboard({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [meds, setMeds] = useState(() => loadMedications());
   // Called after every write to either repository — re-reads both and
   // rebuilds the merged view so the screen reflects what's now actually
@@ -635,10 +702,22 @@ export default function MedicationDashboard() {
   const [correction, setCorrection] = useState(null);
   const [editingMed, setEditingMed] = useState(null);
   const [addingMed, setAddingMed] = useState(false);
+  // ADDED 19 Aug 2026 — same Dashboard quick-add pattern as Contacts/
+  // Encounters; see SHOS_Contacts_Prototype.jsx for the fuller reasoning.
+  useEffect(() => {
+    if (openAddOnMount) {
+      setAddingMed(true);
+      onConsumedQuickAdd?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [justCompleted, setJustCompleted] = useState(null);
   const [dueReminder, setDueReminder] = useState(null);
   const [snoozedUntil, setSnoozedUntil] = useState({});
   const [bulkFlash, setBulkFlash] = useState(false);
+  // ADDED 18 Aug 2026 — same "keep it visible, flash instead of nothing"
+  // fix as the individual card, applied to the bulk button.
+  const [bulkLockFlash, setBulkLockFlash] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [highlightedId, setHighlightedId] = useState(null);
   const [tab, setTab] = useState("Registry");
@@ -658,6 +737,11 @@ export default function MedicationDashboard() {
   // Bulk-log — all Daily-pattern medications at once, sharing one timestamp so they group
   // together in the Log tab automatically.
   const logAllDaily = () => {
+    if (dueDailyMeds.length === 0) {
+      setBulkLockFlash(true);
+      setTimeout(() => setBulkLockFlash(false), 1800);
+      return;
+    }
     const timestamp = new Date().toISOString();
     dueDailyMeds.forEach((m) => LogRepository.create({ medicationId: m.id, type: "dose", delta: -m.unitsPerDose, date: timestamp }));
     refreshMeds();
@@ -746,16 +830,32 @@ export default function MedicationDashboard() {
   const archivedMeds = useMemo(() => meds.filter((m) => m.archived), [meds]);
   const needsActionMeds = useMemo(() => activeMeds.filter((m) => { const s = computeStock(m); return s.tracked && s.needsAction && !m.refillRequestedAt; }), [activeMeds]);
 
-  // Which daily meds are actually due right now (i.e. not locked out) —
-  // "Log all daily meds" only touches these, and the transparency line
-  // (Doc 4 §4a) reflects exactly this set, not every daily medication
-  // that exists. If everything's already logged, the button disappears
-  // entirely rather than sitting there enabled with nothing to do.
+  // CHANGED 18 Aug 2026 — real feedback: the button used to disappear
+  // entirely once everything was logged, which is the same "silently
+  // vanish instead of showing feedback" pattern flagged for the
+  // individual card's own button. Now it stays visible whenever any
+  // daily med exists at all (`allDailyMeds`), and `dueDailyMeds` (still
+  // computed exactly as before) is what decides whether tapping it logs
+  // doses or shows a "locked" flash instead — see logAllDaily() above.
+  const allDailyMeds = useMemo(() => activeMeds.filter((m) => m.usagePattern === "daily"), [activeMeds]);
   const dueDailyMeds = useMemo(() => activeMeds.filter((m) => {
     if (m.usagePattern !== "daily") return false;
     const lastDose = [...m.logs].filter((l) => l.type === "dose" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
     return !lastDose || !isDoseLockedOut(m, lastDose.date);
   }), [activeMeds]);
+
+  // For the bulk lock flash message — the earliest unlock time across
+  // whichever daily meds are currently locked, so the message is
+  // meaningful even when several meds are on different schedules.
+  const earliestBulkUnlock = useMemo(() => {
+    const locked = allDailyMeds.filter((m) => !dueDailyMeds.includes(m));
+    if (locked.length === 0) return null;
+    const estimates = locked.map((m) => {
+      const lastDose = [...m.logs].filter((l) => l.type === "dose" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      return lastDose ? lockoutEndsEstimate(m, lastDose.date) : null;
+    }).filter(Boolean);
+    return estimates[0] || null;
+  }, [allDailyMeds, dueDailyMeds]);
 
   const scrollToProblem = () => {
     if (tab !== "Registry") setTab("Registry");
@@ -787,7 +887,7 @@ export default function MedicationDashboard() {
           Demo: simulate a due-dose notification
         </div>
 
-        <div style={{ display: "flex", gap: 10, padding: "0 16px 16px", overflowX: "auto" }}>
+        <div style={{ display: "flex", gap: 10, padding: "0 16px 16px" }}>
           <StatTile T={T} label="Active medications" value={activeMeds.length} tint={T.medsBlue} />
           <StatTile T={T} label="Needs action" value={needsActionMeds.length} tint={needsActionMeds.length > 0 ? T.actionRed : T.textPrimary}
             subtitle={needsActionMeds.length > 0 ? needsActionMeds.map((m) => m.name.split(" (")[0]).join(", ") : null}
@@ -802,14 +902,19 @@ export default function MedicationDashboard() {
 
         {tab === "Registry" && (
           <>
-            {dueDailyMeds.length > 0 && (
-              <div style={{ padding: "0 16px 12px" }}>
-                <button onClick={logAllDaily} style={{ ...btnStyle(T.medsBlue, "outline"), width: "100%", padding: 10 }}>
-                  {bulkFlash ? <><Check size={14} /> Logged all daily meds</> : <><ListChecks size={14} /> Log all daily meds</>}
+            {allDailyMeds.length > 0 && (
+              <div style={{ padding: "0 16px 12px", position: "relative" }}>
+                <button onClick={logAllDaily} style={{ ...btnStyle(T.medsBlue, "outline"), width: "100%", padding: 10, opacity: dueDailyMeds.length === 0 ? 0.5 : 1 }}>
+                  {bulkFlash ? <><Check size={14} /> Logged all daily meds</> : <><ListChecks size={14} /> {dueDailyMeds.length === 0 ? "All daily meds logged" : "Log all daily meds"}</>}
                 </button>
                 <div style={{ fontSize: 11, color: T.textDisabled, textAlign: "center", marginTop: 4 }}>
-                  Includes: {dueDailyMeds.map((m) => m.name.split(" (")[0]).join(", ")}
+                  {dueDailyMeds.length > 0 ? `Includes: ${dueDailyMeds.map((m) => m.name.split(" (")[0]).join(", ")}` : "Nothing due right now"}
                 </div>
+                {bulkLockFlash && (
+                  <div style={{ position: "absolute", bottom: "100%", left: 16, right: 16, marginBottom: 6, padding: "6px 10px", background: T.textPrimary, color: T.bg, fontSize: 11, fontWeight: 600, borderRadius: radius.sm, textAlign: "center" }}>
+                    Locked{earliestBulkUnlock ? ` until ${earliestBulkUnlock}` : ""}
+                  </div>
+                )}
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "0 16px 100px" }}>
@@ -867,14 +972,15 @@ export default function MedicationDashboard() {
           <div onClick={() => setAddingMed(true)} style={{ width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", boxShadow: "0 2px 8px rgba(0,0,0,.25)", cursor: "pointer" }}><Plus size={24} color={T.fabIcon} /></div>
         </div>
 
-        <div style={{ position: "fixed", bottom: 0, width: 390, background: T.surface, borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-around", padding: "10px 0 14px" }}>
-          {[{ icon: Home, label: "Home" }, { icon: Users, label: "Contacts" }, { icon: Activity, label: "Activity" }, { icon: Pill, label: "Medication", active: true }, { icon: HeartPulse, label: "Healthcare" }].map(({ icon: Icon, label, active }) => (
-            <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-              <Icon size={22} color={active ? T.navActive : T.textDisabled} strokeWidth={active ? 2.5 : 2} />
-              <span style={{ fontSize: 10, color: active ? T.navActive : T.textDisabled, fontWeight: active ? 600 : 400 }}>{label}</span>
-            </div>
-          ))}
-        </div>
+        {/* CHANGED 18 Aug 2026 — removed this module's own static, non-
+            functional bottom bar (it only ever showed "Medication" as
+            active, regardless of which module was actually on screen —
+            the exact inconsistency Kane flagged: this bar existed here
+            but not on Contacts/Activity, so it never persisted across
+            switching). The real persistent nav now lives once, in
+            App.jsx, shared across every module — its visual design
+            (Home/Contacts/Activity/Medication/Healthcare) is exactly
+            what this mockup already showed, just made functional. */}
       </div>
     </div>
   );

@@ -20,19 +20,19 @@
 // that relationship visible rather than picking an arbitrary new hue.
 
 import React, { useState } from "react";
-import { User, Download, Copy, Upload, Check, X, ChevronLeft } from "lucide-react";
+import { User, Download, Copy, Check, X, ChevronLeft } from "lucide-react";
 import { MyProfileRepository, DEFAULT_PROFILE } from "../repositories/myProfileRepository";
 import {
   buildProfileShare, exportProfileShare,
-  importProfileShareFromFile, importProfileShareFromText,
 } from "../storage/profileShareService";
 // Reusing Contacts' own option constants for fields that must line up
 // with Contact's real values (Hosts/Travels/Availability/etc.) — same
 // values, not retyped, so a shared profile always maps onto a valid
 // Contact field value on the receiving end.
 import {
-  HOSTS_OPTIONS, TRAVELS_OPTIONS, AVAILABILITY_OPTIONS, READILY_AVAILABLE_OPTIONS,
-  LENGTH_OPTIONS, THICKNESS_OPTIONS, FORESKIN_OPTIONS, CHASTITY_OPTIONS, CUMMER_OPTIONS,
+  HOSTS_OPTIONS, TRAVELS_OPTIONS, TRAVEL_MODE_OPTIONS, AVAILABILITY_OPTIONS, READILY_AVAILABLE_OPTIONS,
+  LENGTH_OPTIONS, GIRTH_OPTIONS, FORESKIN_OPTIONS, FORESKIN_DETAIL_OPTIONS, CHASTITY_OPTIONS,
+  CUMMER_FREQUENCY_OPTIONS, CUMMER_VOLUME_OPTIONS, CUMMER_STYLE_OPTIONS,
   PREP_DOXY_OPTIONS, DAYS_OF_WEEK, TIME_CONSTRAINT_TYPES, AVAILABILITY_RULE_TYPES,
   BDSM_ROLE_OPTIONS, SEXUAL_POSITION_OPTIONS,
 } from "../repositories/contactRepository";
@@ -130,18 +130,19 @@ function ToggleSwitch({ value, onChange, T }) {
   );
 }
 
-function AgeField({ age, ageIsApprox, onChangeAge, onChangeApprox, T }) {
+// CHANGED 18 Aug 2026 — Approximate-age toggle removed for My Profile
+// specifically (Kane's ask: not meaningful for your own age — you know
+// it exactly). Contacts keeps its own separate AgeField with the
+// toggle, since someone else's stated age genuinely can be approximate.
+// ageIsApprox stays in DEFAULT_PROFILE's shape (harmless, just never
+// set true from here) rather than removing the field outright — same
+// "don't silently drop from the data model" pattern used elsewhere.
+function AgeField({ age, onChangeAge, T }) {
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Age</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <input type="number" value={age ?? ""} onChange={(e) => onChangeAge(e.target.value === "" ? null : Number(e.target.value))}
-          style={{ width: 90, padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
-        <div onClick={() => onChangeApprox(!ageIsApprox)} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-          <ToggleSwitch T={T} value={ageIsApprox} onChange={onChangeApprox} />
-          <span style={{ fontSize: 12, color: T.textSecondary }}>Approximate</span>
-        </div>
-      </div>
+      <input type="number" value={age ?? ""} onChange={(e) => onChangeAge(e.target.value === "" ? null : Number(e.target.value))}
+        style={{ width: 90, padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
     </div>
   );
 }
@@ -373,7 +374,7 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
         <SectionCard title="Identity" T={T}>
           <TextField label="Display name" value={form.displayName} onChange={set("displayName")} T={T} placeholder="What shows up as your name" />
           <TextField label="Nickname" value={form.nickname} onChange={set("nickname")} T={T} />
-          <AgeField age={form.age} ageIsApprox={form.ageIsApprox} onChangeAge={set("age")} onChangeApprox={set("ageIsApprox")} T={T} />
+          <AgeField age={form.age} onChangeAge={set("age")} T={T} />
           <TextField label="City" value={form.city} onChange={set("city")} T={T} placeholder="Deliberately city, not full address — see privacy note" />
         </SectionCard>
 
@@ -388,6 +389,9 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
         <SectionCard title="Hosting / Travel" T={T}>
           <SelectField label="Hosts" value={form.hosts} onChange={set("hosts")} options={HOSTS_OPTIONS} T={T} />
           <SelectField label="Travels" value={form.travels} onChange={set("travels")} options={TRAVELS_OPTIONS} T={T} />
+          {(form.travels === "Yes" || form.travels === "Sometimes") && (
+            <MultiSelectChips label="Travel mode" value={form.travelMode} onChange={set("travelMode")} options={TRAVEL_MODE_OPTIONS} T={T} />
+          )}
         </SectionCard>
 
         <SectionCard title="Availability" T={T}>
@@ -397,8 +401,8 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
         </SectionCard>
 
         <SectionCard title="Into / Limits" T={T}>
-          <RegistryTagPicker label="Into" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} T={T} excludeIds={form.limits} trackRole roleOptions={KINK_ROLE_OPTIONS} />
-          <RegistryTagPicker label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} T={T} excludeIds={form.statedKinks.map((s) => s.kinkId)} />
+          <RegistryTagPicker label="Into" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} T={T} excludeIds={form.limits.map((l) => l.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} />
+          <RegistryTagPicker label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} T={T} excludeIds={form.statedKinks.map((s) => s.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} />
           <MultiSelectChips label="Role" value={form.bdsmRole} onChange={set("bdsmRole")} options={BDSM_ROLE_OPTIONS} T={T} />
           <MultiSelectChips label="Position" value={form.sexualPosition} onChange={set("sexualPosition")} options={SEXUAL_POSITION_OPTIONS} T={T} />
         </SectionCard>
@@ -408,15 +412,36 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
         </SectionCard>
 
         <SectionCard title="Physical" T={T}>
-          <SelectField label="Length" value={form.length} onChange={set("length")} options={LENGTH_OPTIONS} T={T} />
-          <SelectField label="Thickness" value={form.thickness} onChange={set("thickness")} options={THICKNESS_OPTIONS} T={T} />
+          <SelectField label="Length (penis)" value={form.length} onChange={set("length")} options={LENGTH_OPTIONS} T={T} />
+          <SelectField label="Girth (penis)" value={form.thickness} onChange={set("thickness")} options={GIRTH_OPTIONS} T={T} />
           <SelectField label="Foreskin" value={form.foreskin} onChange={set("foreskin")} options={FORESKIN_OPTIONS} T={T} />
+          {form.foreskin === "Uncircumcised" && (
+            <SelectField label="Foreskin fit" value={form.foreskinDetail} onChange={set("foreskinDetail")} options={FORESKIN_DETAIL_OPTIONS} T={T} />
+          )}
           <SelectField label="Chastity status" value={form.chastityStatus} onChange={set("chastityStatus")} options={CHASTITY_OPTIONS} T={T} />
-          <MultiSelectChips label="Cummer" value={form.cummer} onChange={set("cummer")} options={CUMMER_OPTIONS} T={T} />
+          <MultiSelectChips label="Cummer — frequency" value={form.cummer} onChange={set("cummer")} options={CUMMER_FREQUENCY_OPTIONS} T={T} />
+          <MultiSelectChips label="Cummer — volume" value={form.cummer} onChange={set("cummer")} options={CUMMER_VOLUME_OPTIONS} T={T} />
+          <MultiSelectChips label="Cummer — style" value={form.cummer} onChange={set("cummer")} options={CUMMER_STYLE_OPTIONS} T={T} />
         </SectionCard>
 
         <SectionCard title="Sexual health status" T={T}>
           <MultiSelectChips label="Known PrEP/DoxyPEP" value={form.knownPrepDoxy} onChange={set("knownPrepDoxy")} options={PREP_DOXY_OPTIONS} T={T} />
+          {/* ADDED 18 Aug 2026 — Kane's ask: nothing selected here should
+              read as an explicit, deliberate "not on it" — not as an
+              unanswered question — since this is your OWN status, which
+              you know for certain (unlike the equivalent field on a
+              Contact, where empty genuinely can mean "I don't know").
+              Deliberately not colored red: red is this app's existing
+              "needs action" signal (see the design system's Action State
+              colors), and "not on PrEP" isn't something needing action —
+              using red here would misapply that meaning. Neutral/muted
+              instead, same visual language as an unselected state
+              elsewhere, just with explicit wording. */}
+          {form.knownPrepDoxy.length === 0 && (
+            <div style={{ fontSize: 12, color: T.textDisabled, fontStyle: "italic", padding: "2px 0 8px" }}>
+              Not currently on PrEP or DoxyPEP
+            </div>
+          )}
           <TextField label="Last tested date" value={form.lastTestedDate} onChange={set("lastTestedDate")} T={T} type="date" />
         </SectionCard>
 
@@ -428,10 +453,129 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
   );
 }
 
-// ── Share / Import screen ──
-function ShareImportPanel({ profile, T, onImported }) {
+// ── Read-only summary of the current profile. CHANGED 18 Aug 2026 —
+// used to show only a "3 of 27 fields filled" count with nothing else;
+// Kane's ask: show the actual filled data once it exists, not just a
+// number. Only renders fields that actually have a value — empty ones
+// are simply omitted rather than shown blank, keeping this readable
+// once a profile has real content. Kink/Chems selections resolve
+// through their registries the same way Contacts' own read-only view
+// does, including the optional role on statedKinks. ──
+function ReadRow({ label, value, T }) {
+  if (value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0)) return null;
+  const display = Array.isArray(value) ? value.join(", ") : String(value);
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+      <span style={{ fontSize: 12, color: T.textSecondary, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13, color: T.textPrimary, fontWeight: 500, textAlign: "right" }}>{display}</span>
+    </div>
+  );
+}
+
+function ProfileDataView({ profile, T }) {
+  const kinkNames = profile.statedKinks.map((sel) => {
+    const name = KinkRegistry.getById(sel.kinkId)?.name;
+    return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+  }).filter(Boolean);
+  const limitNames = profile.limits.map((sel) => {
+    const name = KinkRegistry.getById(sel.kinkId)?.name;
+    return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+  }).filter(Boolean);
+  const chemNames = profile.knownChems.map((id) => ChemsRegistry.getById(id)?.name).filter(Boolean);
+
+  // CHANGED 18 Aug 2026 — real bug caught while verifying: ageIsApprox
+  // is a boolean, and `false !== "" && false !== null && false !==
+  // undefined` is TRUE — so its default value was silently counting as
+  // "filled" every time, meaning anyFilled was always true and the
+  // empty-state message could never actually show. Excluded explicitly,
+  // same as updatedAt.
+  const anyFilled = Object.keys(DEFAULT_PROFILE).some((k) => {
+    if (k === "updatedAt" || k === "ageIsApprox") return false;
+    const v = profile[k];
+    return Array.isArray(v) ? v.length > 0 : v !== "" && v !== null && v !== undefined;
+  });
+
+  if (!anyFilled) {
+    return (
+      <div style={{ padding: "0 16px 8px", fontSize: 12, color: T.textDisabled, fontStyle: "italic" }}>
+        Nothing filled in yet — tap Edit to get started.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "0 16px 8px" }}>
+      <SectionCard title="Identity" T={T}>
+        <ReadRow label="Nickname" value={profile.nickname} T={T} />
+        <ReadRow label="Age" value={profile.age} T={T} />
+        <ReadRow label="City" value={profile.city} T={T} />
+      </SectionCard>
+      <SectionCard title="Find me on" T={T}>
+        <ReadRow label="Phone/WhatsApp" value={profile.phone} T={T} />
+        <ReadRow label="Snapchat" value={profile.snapchat} T={T} />
+        <ReadRow label="Fabguys" value={profile.fabguys} T={T} />
+        <ReadRow label="Fabswingers" value={profile.fabswingers} T={T} />
+        <ReadRow label="Other platforms" value={profile.contactableVia} T={T} />
+      </SectionCard>
+      <SectionCard title="Hosting / Travel" T={T}>
+        <ReadRow label="Hosts" value={profile.hosts} T={T} />
+        <ReadRow label="Travels" value={profile.travels} T={T} />
+        <ReadRow label="Travel mode" value={profile.travelMode} T={T} />
+      </SectionCard>
+      <SectionCard title="Availability" T={T}>
+        <ReadRow label="General availability" value={profile.availability} T={T} />
+        <ReadRow label="Readily available?" value={profile.readilyAvailable} T={T} />
+      </SectionCard>
+      <SectionCard title="Into / Limits" T={T}>
+        <ReadRow label="Into" value={kinkNames} T={T} />
+        <ReadRow label="Limits" value={limitNames} T={T} />
+        <ReadRow label="Role" value={profile.bdsmRole} T={T} />
+        <ReadRow label="Position" value={profile.sexualPosition} T={T} />
+      </SectionCard>
+      <SectionCard title="Chems" T={T}>
+        <ReadRow label="Known chems" value={chemNames} T={T} />
+      </SectionCard>
+      <SectionCard title="Physical" T={T}>
+        <ReadRow label="Length (penis)" value={profile.length} T={T} />
+        <ReadRow label="Girth (penis)" value={profile.thickness} T={T} />
+        <ReadRow label="Foreskin" value={profile.foreskin} T={T} />
+        <ReadRow label="Foreskin fit" value={profile.foreskinDetail} T={T} />
+        <ReadRow label="Chastity status" value={profile.chastityStatus} T={T} />
+        <ReadRow label="Cummer" value={profile.cummer} T={T} />
+      </SectionCard>
+      <SectionCard title="Sexual health status" T={T}>
+        <ReadRow label="Known PrEP/DoxyPEP" value={profile.knownPrepDoxy} T={T} />
+        {/* ADDED 18 Aug 2026 — same explicit-"not on it" treatment as the
+            edit sheet, needed here too: this is the screen you'd actually
+            glance at to check your own status, so the empty state needs
+            to read as deliberate here just as much as while editing. */}
+        {profile.knownPrepDoxy.length === 0 && (
+          <div style={{ fontSize: 12, color: T.textDisabled, fontStyle: "italic", padding: "2px 0 6px" }}>
+            Not currently on PrEP or DoxyPEP
+          </div>
+        )}
+        <ReadRow label="Last tested date" value={profile.lastTestedDate} T={T} />
+      </SectionCard>
+      <SectionCard title="About me" T={T}>
+        <ReadRow label="Note" value={profile.aboutMeNotes} T={T} />
+      </SectionCard>
+    </div>
+  );
+}
+
+// ── Share screen ── (Import moved to Contacts as of 18 Aug 2026 —
+// see ImportSharedProfileSheet in SHOS_Contacts_Prototype.jsx. Importing
+// a shared profile creates a Contact, so it belongs where Contacts are
+// managed, not here — matches Doc 1's own placement too: My Profile
+// isn't even a primary-nav screen, it's a Settings sub-item, so Contacts
+// is the natural home for anything that results in a new Contact.)
+// CHANGED 18 Aug 2026 — Kane's ask: Export shouldn't be a prominent
+// section competing with the actual profile data for attention — either
+// a small button near the bottom, or folded into Settings once that
+// exists. Settings doesn't exist yet, so: small button near the bottom,
+// same spirit either way.
+function ShareProfilePanel({ T }) {
   const [status, setStatus] = useState(null);
-  const [pasteText, setPasteText] = useState("");
 
   const doExportFile = () => {
     exportProfileShare();
@@ -448,58 +592,22 @@ function ShareImportPanel({ profile, T, onImported }) {
     }
   };
 
-  const doImportFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    importProfileShareFromFile(
-      file,
-      (newContact) => { setStatus({ ok: true, msg: `Added "${newContact.name}" to your Contacts.` }); onImported?.(); },
-      (err) => setStatus({ ok: false, msg: err.message })
-    );
-    e.target.value = "";
-  };
-
-  const doImportPaste = () => {
-    importProfileShareFromText(
-      pasteText,
-      (newContact) => { setStatus({ ok: true, msg: `Added "${newContact.name}" to your Contacts.` }); setPasteText(""); onImported?.(); },
-      (err) => setStatus({ ok: false, msg: err.message })
-    );
-  };
-
   return (
-    <div style={{ padding: "0 16px 100px" }}>
-      <SectionCard title="Share your profile" T={T}>
-        <div style={{ fontSize: 12, color: T.textSecondary, padding: "8px 0" }}>
-          Sends only what's above — never your relationship notes or how-we-met info about anyone else, because those don't exist on this record at all.
+    <div style={{ padding: "8px 16px 100px" }}>
+      <div style={{ fontSize: 11, color: T.textDisabled, textAlign: "center", marginBottom: 8 }}>
+        Sharing sends only what's above — never relationship notes or how-we-met info, since those don't exist on this record.
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+        <div onClick={doExportFile} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          <Download size={13} /> Save as file
         </div>
-        <div style={{ display: "flex", gap: 8, padding: "4px 0" }}>
-          <div onClick={doExportFile} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px", borderRadius: radius.full, background: T.contactsTeal, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            <Download size={15} /> Save as file
-          </div>
-          <div onClick={doCopyText} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px", borderRadius: radius.full, border: `1px solid ${T.contactsTeal}`, color: T.contactsTeal, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            <Copy size={15} /> Copy as text
-          </div>
+        <div onClick={doCopyText} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+          <Copy size={13} /> Copy as text
         </div>
-      </SectionCard>
-
-      <SectionCard title="Import a shared profile" T={T}>
-        <div style={{ fontSize: 12, color: T.textSecondary, padding: "8px 0" }}>
-          Creates a brand-new Contact from someone else's shared profile. Doesn't touch or merge with any existing contact.
-        </div>
-        <TextAreaField label="Paste a shared profile" value={pasteText} onChange={setPasteText} T={T} placeholder="Paste the JSON text someone sent you" />
-        <div onClick={doImportPaste} style={{ textAlign: "center", padding: "10px", borderRadius: radius.full, fontSize: 13, fontWeight: 600, cursor: "pointer", background: pasteText.trim() ? T.contactsTeal : T.surfaceVariant, color: pasteText.trim() ? "#FFFFFF" : T.textDisabled, marginBottom: 10 }}>
-          Import from pasted text
-        </div>
-        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textPrimary, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          <Upload size={15} /> Import from file
-          <input type="file" accept="application/json" onChange={doImportFile} style={{ display: "none" }} />
-        </label>
-      </SectionCard>
-
+      </div>
       {status && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: radius.sm, marginTop: 14, background: status.ok ? `${T.actionGreen}15` : `${T.actionRed}15`, color: status.ok ? T.actionGreen : T.actionRed, fontSize: 13 }}>
-          {status.ok ? <Check size={16} /> : <X size={16} />}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 14px", borderRadius: radius.sm, marginTop: 10, background: status.ok ? `${T.actionGreen}15` : `${T.actionRed}15`, color: status.ok ? T.actionGreen : T.actionRed, fontSize: 12 }}>
+          {status.ok ? <Check size={14} /> : <X size={14} />}
           {status.msg}
         </div>
       )}
@@ -509,19 +617,14 @@ function ShareImportPanel({ profile, T, onImported }) {
 
 // ── Read-only summary of the current profile, shown above the
 // share/import tools so it's obvious what's about to go out. ──
+// CHANGED 18 Aug 2026 — used to show "X of Y fields filled" as the only
+// content; now just the name + Edit button, since the actual data
+// renders below via ProfileDataView.
 function ProfileSummary({ profile, T, onEdit }) {
-  const filledCount = Object.keys(DEFAULT_PROFILE).filter((k) => {
-    const v = profile[k];
-    if (Array.isArray(v)) return v.length > 0;
-    return v !== "" && v !== null && v !== undefined;
-  }).length;
   return (
     <div style={{ padding: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>{profile.displayName || profile.nickname || "My Profile"}</div>
-          <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 2 }}>{filledCount} of {Object.keys(DEFAULT_PROFILE).length - 1} fields filled</div>
-        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>{profile.displayName || profile.nickname || "My Profile"}</div>
         <div onClick={onEdit} style={{ padding: "8px 16px", borderRadius: radius.full, border: `1px solid ${T.contactsTeal}`, color: T.contactsTeal, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
           Edit
         </div>
@@ -530,7 +633,7 @@ function ProfileSummary({ profile, T, onEdit }) {
   );
 }
 
-export default function MyProfileModule() {
+export default function MyProfileModule({ onClose }) {
   const [profile, setProfile] = useState(() => MyProfileRepository.getProfile());
   const [editing, setEditing] = useState(false);
   const T = LIGHT;
@@ -548,12 +651,19 @@ export default function MyProfileModule() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');`}</style>
       <div style={{ width: 390, background: T.bg, minHeight: "100vh", borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "18px 16px 0" }}>
+          {/* ADDED 18 Aug 2026 — My Profile no longer has its own bottom-nav
+              tab (see Doc 1 — it's a Settings sub-item, reached from
+              Contacts for now until Settings exists). Shown as a
+              full-screen overlay with a real way back when opened that
+              way. */}
+          {onClose && <ChevronLeft size={20} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onClose} />}
           <User size={18} color={T.contactsTeal} />
           <span style={{ fontSize: 12, fontWeight: 700, color: T.contactsTeal, textTransform: "uppercase", letterSpacing: 0.5 }}>My Profile</span>
         </div>
 
         <ProfileSummary profile={profile} T={T} onEdit={() => setEditing(true)} />
-        <ShareImportPanel profile={profile} T={T} onImported={refresh} />
+        <ProfileDataView profile={profile} T={T} />
+        <ShareProfilePanel T={T} />
 
         {editing && (
           <MyProfileEditScreen profile={profile} onSave={saveEdit} onCancel={() => setEditing(false)} T={T} />

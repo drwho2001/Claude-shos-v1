@@ -9,7 +9,10 @@
 // never writes to a Contact record; the link is one-directional storage,
 // as documented in encounterRepository.js).
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+// ADDED 19 Aug 2026 — draft autosave, real fix for in-progress edits
+// being lost on refresh. See draftStorage.js for the full reasoning.
+import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
 import { Plus, ChevronLeft, MoreVertical, X, Archive, Users, MapPin, Heart } from "lucide-react";
 import {
   EncounterRepository, DEFAULT_ENCOUNTER,
@@ -113,6 +116,66 @@ function MultiSelectChips({ label, value, onChange, options, T }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ADDED 18 Aug 2026 — real feedback from Kane, clarified over several
+// rounds: "My position" options mix genuine giving/receiving pairs
+// (Fingering, Oral, Rimming, Anal) with acts that have no natural
+// directional role (Kissing, Cuddling, Groping, Mutual masturbation,
+// Kink, Toys). A flat chip list made every pair repeat the word
+// "giving"/"receiving" as text; Kane's ask was two columns headed
+// Giving/Receiving with just the act name in each, plus a third
+// unsplit group below for the acts that don't have that split.
+// Deliberately does NOT change the stored shape — MY_POSITION_OPTIONS
+// is still one flat array of strings (e.g. "Rimming - giving"), this
+// component just reads the " - giving"/" - receiving" suffix to decide
+// which column an option belongs in, and treats anything without that
+// suffix as the third group. No new data model needed for this.
+function GivingReceivingChips({ label, value, onChange, options, T }) {
+  const giving = [];
+  const receiving = [];
+  const neutral = [];
+  options.forEach((opt) => {
+    if (opt.endsWith(" - giving")) giving.push(opt.slice(0, -" - giving".length));
+    else if (opt.endsWith(" - receiving")) receiving.push(opt.slice(0, -" - receiving".length));
+    else neutral.push(opt);
+  });
+
+  const toggle = (fullValue) => {
+    const has = value.includes(fullValue);
+    onChange(has ? value.filter((v) => v !== fullValue) : [...value, fullValue]);
+  };
+
+  const Chip = ({ act, fullValue }) => {
+    const active = value.includes(fullValue);
+    return (
+      <div onClick={() => toggle(fullValue)}
+        style={{ padding: "5px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${active ? T.encountersPink : T.border}`, color: active ? T.encountersPink : T.textSecondary, background: active ? `${T.encountersPink}15` : "transparent", textAlign: "center" }}>
+        {act}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>{label}</div>
+      <div style={{ display: "flex", gap: 14 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDisabled, textTransform: "uppercase", letterSpacing: 0.5 }}>Giving</div>
+          {giving.map((act) => <Chip key={act} act={act} fullValue={`${act} - giving`} />)}
+        </div>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDisabled, textTransform: "uppercase", letterSpacing: 0.5 }}>Receiving</div>
+          {receiving.map((act) => <Chip key={act} act={act} fullValue={`${act} - receiving`} />)}
+        </div>
+      </div>
+      {neutral.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+          {neutral.map((opt) => <Chip key={opt} act={opt} fullValue={opt} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -237,23 +300,54 @@ function RegistrySinglePicker({ label, value, onChange, T, registry, placeholder
   const current = value ? (allEntries.find((e) => e.id === value)?.name || registry.getById(value)?.name || "") : "";
   const [draft, setDraft] = useState(current);
 
+  // ADDED 18 Aug 2026 — real feedback: relying only on the native
+  // <datalist> dropdown "doesn't feel right" — no visible tap target,
+  // easy to miss the dropdown affordance entirely on a phone. Same fix
+  // already shipped for RegistryTagPicker earlier this session: visible
+  // tappable suggestion chips for existing entries, not just a native
+  // browser dropdown as the only way in.
+  const listId = `registry-single-${label.replace(/\s+/g, "-")}`;
+  const visibleSuggestions = allEntries.filter((e) => e.id !== value).slice(0, 8);
+
   const commit = () => {
     const trimmed = draft.trim();
     if (!trimmed) { onChange(""); return; }
     const entry = registry.findOrCreate(trimmed);
-    if (entry) onChange(entry.id);
+    // CHANGED 18 Aug 2026 — real bug: draft never synced back to the
+    // entry's canonical stored name after commit, so typing "sauna"
+    // when "Sauna" already existed would match the existing entry
+    // (findOrCreate is case-insensitive) but leave the field showing
+    // lowercase "sauna" — visually inconsistent with what's actually
+    // saved. This is very likely what "doesn't feel right after
+    // clicking out" was describing.
+    if (entry) { onChange(entry.id); setDraft(entry.name); }
+  };
+
+  const tapSuggestion = (entry) => {
+    onChange(entry.id);
+    setDraft(entry.name);
   };
 
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((e) => (
+            <div key={e.id} onClick={() => tapSuggestion(e)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.encountersPink}`, color: T.encountersPink, cursor: "pointer" }}>
+              {e.name}
+            </div>
+          ))}
+        </div>
+      )}
       <input value={draft} onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }}
-        list={`registry-single-${label.replace(/\s+/g, "-")}`}
+        list={listId}
         placeholder={placeholder || "Pick existing or type a new one"}
         style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
-      <datalist id={`registry-single-${label.replace(/\s+/g, "-")}`}>
+      <datalist id={listId}>
         {allEntries.map((e) => <option key={e.id} value={e.name} />)}
       </datalist>
     </div>
@@ -322,7 +416,7 @@ function EncounterCard({ encounter, contacts, T, onClick }) {
           </div>
         </div>
         {encounter.enjoymentRating != null && (
-          <div style={{ fontSize: 12, fontFamily: "monospace", color: T.textSecondary, display: "flex", alignItems: "center", gap: 3 }}>
+          <div style={{ fontSize: 12, fontFamily: "'JetBrains Mono', monospace", color: T.textSecondary, display: "flex", alignItems: "center", gap: 3 }}>
             <Heart size={12} color={T.encountersPink} /> {encounter.enjoymentRating}
           </div>
         )}
@@ -442,7 +536,6 @@ function ActivityDetails({ T, encounterId, onBack, onEdit }) {
           <ReadRow label="Time of day" value={timeOfDay(encounter.date)} T={T} />
           <ReadRow label="Would meet again" value={encounter.wouldMeetAgain} T={T} />
           <ReadRow label="Enjoyment rating" value={encounter.enjoymentRating} T={T} />
-          <ReadRow label="Follow-up needed" value={encounter.followUpNeeded ? "Yes" : ""} T={T} />
         </SectionCard>
 
         <SectionCard title="Attendees" T={T}>
@@ -495,10 +588,23 @@ function ActivityDetails({ T, encounterId, onBack, onEdit }) {
 function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
   const isNew = !encounterId;
   const [contacts] = useState(loadContacts);
-  const [form, setForm] = useState(() => isNew ? { ...DEFAULT_ENCOUNTER } : EncounterRepository.getById(encounterId));
+  // ADDED 19 Aug 2026 — draft autosave, same pattern/reasoning as
+  // Contacts — see draftStorage.js.
+  const draftKey = `encounterEdit_${encounterId || "new"}`;
+  const [form, setForm] = useState(() => {
+    const draft = loadDraft(draftKey);
+    if (draft) return draft.data;
+    return isNew ? { ...DEFAULT_ENCOUNTER } : EncounterRepository.getById(encounterId);
+  });
+  const [draftRestored] = useState(() => !!loadDraft(draftKey));
+  useEffect(() => {
+    saveDraft(draftKey, form);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
   const set = (key) => (val) => setForm((f) => ({ ...f, [key]: val }));
 
   const save = () => {
+    clearDraft(draftKey);
     if (isNew) EncounterRepository.create(form);
     else EncounterRepository.update(encounterId, form);
     onSaved();
@@ -509,8 +615,17 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
       <div style={{ position: "sticky", top: 0, background: T.bg, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
         <X size={22} style={{ cursor: "pointer" }} onClick={onClose} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 16 }}>{isNew ? "Add Activity" : "Edit Activity"}</span>
-        <div onClick={save} style={{ color: T.encountersPink, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Save</div>
+        <div onClick={save}
+          style={{ padding: "6px 14px", borderRadius: radius.full, background: T.encountersPink, color: "#FFFFFF", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+          Save
+        </div>
       </div>
+
+      {draftRestored && (
+        <div style={{ margin: "10px 16px 0", fontSize: 11, color: T.actionGreen, background: `${T.actionGreen}15`, borderRadius: radius.sm, padding: "6px 10px" }}>
+          Restored unsaved changes from earlier.
+        </div>
+      )}
 
       <div style={{ padding: "0 16px 40px" }}>
         <SectionCard title="Overview" T={T}>
@@ -519,10 +634,6 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
           <SelectField label="Encounter type" value={form.encounterType} onChange={set("encounterType")} options={ENCOUNTER_TYPE_OPTIONS} T={T} />
           <SelectField label="Would meet again" value={form.wouldMeetAgain} onChange={set("wouldMeetAgain")} options={WOULD_MEET_AGAIN_OPTIONS} T={T} />
           <TextField label="Enjoyment rating (0–100)" value={form.enjoymentRating} onChange={set("enjoymentRating")} T={T} type="number" />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
-            <input type="checkbox" checked={!!form.followUpNeeded} onChange={(e) => set("followUpNeeded")(e.target.checked)} />
-            <span style={{ fontSize: 13, color: T.textPrimary }}>Follow-up needed</span>
-          </div>
         </SectionCard>
 
         <SectionCard title="Attendees" T={T}>
@@ -531,7 +642,7 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
 
         <SectionCard title="Practices" T={T}>
           <SelectField label="My role" value={form.myRole} onChange={set("myRole")} options={MY_ROLE_OPTIONS} T={T} />
-          <MultiSelectChips label="My position" value={form.myPosition} onChange={set("myPosition")} options={MY_POSITION_OPTIONS} T={T} />
+          <GivingReceivingChips label="My position" value={form.myPosition} onChange={set("myPosition")} options={MY_POSITION_OPTIONS} T={T} />
           <MultiSelectChips label="Where did I cum?" value={form.whereICame} onChange={set("whereICame")} options={CUM_LOCATION_OPTIONS} T={T} />
           <MultiSelectChips label="Where did he cum?" value={form.whereHeCame} onChange={set("whereHeCame")} options={CUM_LOCATION_OPTIONS} T={T} />
         </SectionCard>
@@ -566,31 +677,55 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
 
 // ── Top-level module component — same shape as the Contacts/Medication
 // top-level components, so App.jsx's switcher can drop this in directly. ──
-export default function EncountersModule() {
+export default function EncountersModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [screen, setScreen] = useState({ name: "landing" });
 
+  // ADDED 19 Aug 2026 — same Dashboard quick-add pattern as Contacts;
+  // see that file for the fuller reasoning on why mount-only is enough.
+  useEffect(() => {
+    if (openAddOnMount) {
+      setScreen({ name: "edit", id: null });
+      onConsumedQuickAdd?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // FIXED 19 Aug 2026 — real bug Kane spotted ("looked like Times New
+  // Roman"): every other module wraps its content in a div that sets
+  // fontFamily: 'Public Sans' AND loads the actual Google Font via a
+  // <style>@import</style> tag. This module never did either — it just
+  // returned each screen's content directly. Individual elements that
+  // explicitly set fontFamily: "'Public Sans', sans-serif" would still
+  // fall through to the browser's default serif font, because Public
+  // Sans itself was never actually loaded here, and anything that
+  // *didn't* set its own fontFamily had nothing to inherit from either.
+  // Same fix as every other module: one wrapper, one font import,
+  // applied once regardless of which screen is showing.
+  let screenContent = null;
   if (screen.name === "landing") {
-    return (
-      <>
-        <ActivityLanding T={LIGHT}
-          onOpenEncounter={(id) => setScreen({ name: "detail", id })}
-          onAdd={() => setScreen({ name: "edit", id: null })} />
-      </>
+    screenContent = (
+      <ActivityLanding T={LIGHT}
+        onOpenEncounter={(id) => setScreen({ name: "detail", id })}
+        onAdd={() => setScreen({ name: "edit", id: null })} />
     );
-  }
-  if (screen.name === "detail") {
-    return (
+  } else if (screen.name === "detail") {
+    screenContent = (
       <ActivityDetails T={LIGHT} encounterId={screen.id}
         onBack={() => setScreen({ name: "landing" })}
         onEdit={(id) => setScreen({ name: "edit", id })} />
     );
-  }
-  if (screen.name === "edit") {
-    return (
+  } else if (screen.name === "edit") {
+    screenContent = (
       <EncounterEditSheet T={LIGHT} encounterId={screen.id}
         onClose={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
         onSaved={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })} />
     );
   }
-  return null;
+
+  return (
+    <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`}</style>
+      {screenContent}
+    </div>
+  );
 }

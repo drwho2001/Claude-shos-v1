@@ -47,6 +47,14 @@ const STORAGE_KEY = "shos_contacts";
 // pointer to why the two don't match.
 export const HOSTS_OPTIONS = ["Yes", "Sometimes", "No"];
 export const TRAVELS_OPTIONS = ["Yes", "Sometimes", "No"];
+// ADDED 18 Aug 2026 — Kane's ask: capture HOW someone travels, not just
+// whether they do. Multi-select, since someone might use different
+// modes depending on the day (car sometimes, public transport other
+// times) — a single-select would force an artificial either/or choice.
+// Only shown/meaningful when travels isn't explicitly "No" (same
+// "only relevant when its parent condition allows it" pattern already
+// used for carDetails/foreskinDetail).
+export const TRAVEL_MODE_OPTIONS = ["Public transport", "Car", "Cycle", "Walk", "Taxi"];
 // ⚠️ APP-ONLY CORRECTION (17 Aug 2026, Kane): Notion's live "Availability"
 // multi_select actually contains both "Night" and "Nights" as separate
 // options — an inconsistent-pluralization duplicate, not a deliberate
@@ -61,9 +69,31 @@ export const READILY_AVAILABLE_OPTIONS = ["Readily available", "Inaccessible", "
 export const RELATIONSHIP_TYPE_OPTIONS = ["Hookup", "Fuck buddy (casual)", "Friend with Benefit (chill)", "Partner"];
 export const MEET_AGAIN_OPTIONS = ["Yes", "Tentatively", "No"];
 export const LENGTH_OPTIONS = ["Short", "Average", "Long"];
-export const THICKNESS_OPTIONS = ["Skinny", "Average", "Thick"];
-export const FORESKIN_OPTIONS = ["Circumcised", "Uncircumcised", "Loose", "Too tight", "Unknown / N/A"];
+// CHANGED 18 Aug 2026 — renamed Thickness → Girth (Kane's ask: name
+// should say what it measures). Values unchanged.
+export const GIRTH_OPTIONS = ["Skinny", "Average", "Thick"];
+// CHANGED 18 Aug 2026 — simplified to the top-level state only. The
+// old flat list mixed circumcision status with foreskin FIT ("Loose",
+// "Too tight") as if they were the same kind of thing. Kane's ask:
+// branch — pick circumcision status first, then (only if Uncircumcised)
+// a separate fit detail. See FORESKIN_DETAIL_OPTIONS below.
+export const FORESKIN_OPTIONS = ["Circumcised", "Uncircumcised", "Unknown / N/A"];
+// ADDED 18 Aug 2026 — only meaningful, and only shown in the UI, when
+// foreskin === "Uncircumcised" — same "only relevant/shown when its
+// parent condition is true" pattern already used for carDetails (only
+// shown when drives is true).
+export const FORESKIN_DETAIL_OPTIONS = ["Average", "Baggy", "Tight", "Unretractable"];
 export const CHASTITY_OPTIONS = ["N/A", "Uncaged", "Caged"];
+// ADDED 18 Aug 2026 — Cummer's flat 8-option list is now grouped into
+// three sub-lists purely for DISPLAY (frequency/volume/style) — the
+// stored shape is unchanged, still one flat array on the contact/
+// profile record. Each group renders as its own small MultiSelectChips
+// sharing the same value/onChange, so toggling any option in any group
+// correctly adds/removes just that one value from the shared array —
+// no new component or data shape needed for this.
+export const CUMMER_FREQUENCY_OPTIONS = ["Doesn't", "Premature", "Takes ages", "Only once"];
+export const CUMMER_VOLUME_OPTIONS = ["Big load", "Multiple loads"];
+export const CUMMER_STYLE_OPTIONS = ["Squirter", "Dribbler"];
 export const CUMMER_OPTIONS = ["Doesn't", "Premature", "Takes ages", "Only once", "Multiple loads", "Big load", "Squirter", "Dribbler"];
 
 // New this round: known PrEP/DoxyPEP status, and the day/time rule
@@ -78,8 +108,19 @@ export const AVAILABILITY_RULE_TYPES = ["Unavailable", "Available"];
 // this genuinely isn't there yet, not something missed. Logged here per
 // the same pattern as the Hosting/Travel split; revisit adding to Notion
 // if it turns out to earn its place long-term.
-export const BDSM_ROLE_OPTIONS = ["Dom", "Sub", "Switch"];
+// CHANGED 18 Aug 2026 — reordered per Kane's ask (Dom→Switch→Sub, his
+// own stated "descending dominance" ordering), Vanilla added as a new
+// option — not everyone tracked here has a kink/power-exchange dynamic
+// at all, and there wasn't a way to say that before.
+export const BDSM_ROLE_OPTIONS = ["Dom", "Switch", "Sub", "Vanilla"];
 export const SEXUAL_POSITION_OPTIONS = ["Top", "Vers", "Bottom", "Oral only", "Side", "Kink"];
+// ADDED 18 Aug 2026 — new field, Kane's ask: a simple personal rating,
+// shown as its emoji on the card. Single-select (one rating per
+// contact, not a tag list) — ordered best to worst, matching how the
+// options read naturally. Emoji embedded directly in the option string
+// (same pattern LOCATION_TYPE_OPTIONS already uses), so no separate
+// emoji-lookup map is needed anywhere this gets displayed.
+export const RATING_OPTIONS = ["😍 Love", "😊 Happy", "😐 Meh", "😕 Reticent", "😠 Angry"];
 
 // ---------------------------------------------------------------------
 // Seed data
@@ -91,11 +132,28 @@ export const SEXUAL_POSITION_OPTIONS = ["Top", "Vers", "Bottom", "Oral only", "S
 // shape, not several that can drift apart.
 export const DEFAULT_CONTACT = {
   name: "", nickname: "", age: null, ageIsApprox: false,
+  // ADDED 19 Aug 2026 — real gap from the Notion-vs-app audit. Stored
+  // as a data URL (base64-encoded image), not a file path or upload
+  // URL — there's no real backend/cloud storage in this app, so a data
+  // URL is the only way to keep a photo genuinely self-contained,
+  // working the same in the browser preview and in a real deployed
+  // build. Deliberate tradeoff, worth knowing: data URLs are larger
+  // than the original file (~33% bigger) and every browser caps
+  // localStorage around 5–10MB total across the WHOLE app, not just
+  // this field — a handful of photos is fine, dozens of full-resolution
+  // ones could genuinely fill it up. No compression/resizing built yet;
+  // worth adding if this becomes a real problem, not before.
+  profilePicture: "",
   phone: "", snapchat: "", fabguys: "", fabswingers: "", contactableVia: [],
   city: "", address: "",
-  hosts: "", travels: "",
+  hosts: "", travels: "", travelMode: [],
   availability: [], nonAvailabilityRules: [], readilyAvailable: "",
-  drives: false, carDetails: "",
+  // CHANGED 18 Aug 2026 — carRegistration added, split out from
+  // carDetails: registration is a distinct, more sensitive piece of
+  // information (identifies a specific vehicle/person) than a general
+  // description like "Blue Ford Focus" — Kane's ask was to keep them
+  // separate rather than one freeform field mixing both.
+  drives: false, carDetails: "", carRegistration: "",
   relationshipType: [], howDidWeMeet: [], meetAgain: "", dontMeetAgainReason: "",
   // CHANGED 18 Aug 2026 — statedKinks/limits/knownChems now hold
   // REGISTRY IDs (kink_NNN, chem_NNN), not free text. Kink Registry and
@@ -108,11 +166,15 @@ export const DEFAULT_CONTACT = {
   statedKinks: [], limits: [],
   knownChems: [],
   bdsmRole: [], sexualPosition: [],
-  length: "", thickness: "", foreskin: "", chastityStatus: "", cummer: [],
+  // ADDED 18 Aug 2026 — foreskinDetail: only meaningful when foreskin
+  // is "Uncircumcised" (see FORESKIN_DETAIL_OPTIONS above).
+  length: "", thickness: "", foreskin: "", foreskinDetail: "", chastityStatus: "", cummer: [],
   knownPrepDoxy: [], lastTestedDate: "",
   notes: "",
   linkedContactIds: [],
   linkedContactLabels: {},
+  // ADDED 18 Aug 2026 — personal rating, see RATING_OPTIONS above.
+  rating: "",
 };
 
 // ---------------------------------------------------------------------
@@ -215,9 +277,14 @@ function generateContactId() {
 // on every getAll()/getById() means BOTH shapes silently normalize to
 // the current one every time, forever — no one-off migration script
 // ever needs to run, and no old data becomes unreadable.
-// `limits`/`knownChems` deliberately stay plain ID arrays — a role
-// doesn't mean anything for a limit (something explicitly not wanted),
-// and Kane didn't ask for it there.
+// CHANGED 18 Aug 2026 — limits now goes through this too. Originally
+// left as a plain ID array on the reasoning that a role doesn't mean
+// anything for something explicitly NOT wanted — Kane's follow-up: he
+// wants the same tracking on Limits as Kinks regardless (e.g. a limit
+// can still be role-specific — "no fisting bottom" is a more precise
+// limit than "no fisting" full stop). `knownChems` still stays a plain
+// ID array — role genuinely doesn't apply to a chem the way it does to
+// an act.
 function normalizeKinkSelections(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map((entry) => {
@@ -246,14 +313,14 @@ export const ContactRepository = {
   // field's default the moment it's read, every time, forever forward —
   // adding a new field to DEFAULT_CONTACT is now automatically safe for
   // every contact saved by every earlier version of the app.
-  // Also now runs statedKinks through normalizeKinkSelections() (see
-  // above) so old flat-ID-array contacts and new role-aware contacts
-  // both read back in the current shape.
+  // Also now runs statedKinks AND limits through normalizeKinkSelections()
+  // (see above) so old flat-ID-array contacts and new role-aware
+  // contacts both read back in the current shape.
   getAll() {
     return structuredClone(
       contacts.map((c) => {
         const merged = { ...DEFAULT_CONTACT, ...c };
-        return { ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks) };
+        return { ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks), limits: normalizeKinkSelections(merged.limits) };
       })
     );
   },
@@ -262,7 +329,7 @@ export const ContactRepository = {
     const found = contacts.find((c) => c.id === id);
     if (!found) return null;
     const merged = { ...DEFAULT_CONTACT, ...found };
-    return structuredClone({ ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks) });
+    return structuredClone({ ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks), limits: normalizeKinkSelections(merged.limits) });
   },
 
   create(data) {

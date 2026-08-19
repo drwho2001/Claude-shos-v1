@@ -57,9 +57,19 @@ const STORAGE_KEY = "shos_encounters";
 
 export const ENCOUNTER_TYPE_OPTIONS = ["Hookup", "Group", "Date/Chill", "Sauna", "Event", "Other"];
 
+// CHANGED 18 Aug 2026 — "Anal – top"/"Anal - bottom" renamed to
+// "Anal - giving"/"Anal - receiving" for consistency with every other
+// item here (Kane's real feedback: Top/Bottom is anal-sex-specific
+// terminology, Giving/Receiving is the term that actually fits all of
+// these). Nothing removed — Kissing/Cuddling/Groping/Mutual
+// masturbation/Kink/Toys stay exactly as they were; the UI (see
+// GivingReceivingChips in SHOS_Encounters_Prototype.jsx) is what
+// changed, splitting the "- giving"/"- receiving" pairs into two
+// columns and showing everything else in a third group below, not this
+// list itself.
 export const MY_POSITION_OPTIONS = [
   "Fingering - giving", "Fingering - receiving", "Oral - giving", "Oral - receiving",
-  "Rimming - giving", "Rimming - receiving", "Anal – top", "Anal - bottom",
+  "Rimming - giving", "Rimming - receiving", "Anal - giving", "Anal - receiving",
   "Kissing", "Cuddling", "Groping", "Mutual masturbation", "Kink", "Toys",
 ];
 
@@ -113,6 +123,15 @@ export const DEFAULT_ENCOUNTER = {
   chemsAlcoholUsed: [],
   wouldMeetAgain: "",
   protectionUsed: [],
+  // FLAGGED OBSOLETE 18 Aug 2026 (Kane): too ambiguous in practice — could
+  // mean "should I meet this person again" (already covered by
+  // wouldMeetAgain above) or "this entry is incomplete, come back to it".
+  // Removed from the UI entirely (no checkbox, no read-only display) per
+  // Kane's direct ask. Left here rather than deleted, staged for manual
+  // removal — same standing pattern as other obsolete fields flagged
+  // this project (e.g. Medication Log's old Next refill date): a live
+  // field is never silently dropped from the data model, only from the
+  // UI, until a deliberate cleanup pass removes it for real.
   followUpNeeded: false,
   notes: "",
   enjoymentRating: null,

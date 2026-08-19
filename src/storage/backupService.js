@@ -31,6 +31,17 @@ import { LocationsRepository } from "../repositories/locationsRepository.js";
 // module here uses — handled as a single object under data.myProfile,
 // with its own type checks below rather than Array.isArray().
 import { MyProfileRepository } from "../repositories/myProfileRepository.js";
+// ADDED 19 Aug 2026 — Testing (and its two supporting registries)
+// existed for a full session before this fix — a backup taken in that
+// window would have silently excluded all test data with no warning.
+// Caught during a direct audit, not assumed complete.
+import { TestingRepository } from "../repositories/testingRepository.js";
+import { OrganismRegistry } from "../registries/organismRegistry.js";
+import { ResultsRegistry } from "../registries/resultsRegistry.js";
+// ADDED 19 Aug 2026, same session Clinic Visits was built — added
+// immediately, not after the fact this time, having just caught Testing
+// missing from here for a full session.
+import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository.js";
 
 // Doc 5 §8: "Every export/backup file stamps: schema version, migration
 // version, app version." Schema version bumps only when a backup file's
@@ -57,6 +68,10 @@ export function buildBackup() {
       symptoms: SymptomsRegistry.getAll(),
       locations: LocationsRepository.getAll(),
       myProfile: MyProfileRepository.getProfile(),
+      tests: TestingRepository.getAll(),
+      organisms: OrganismRegistry.getAll(),
+      results: ResultsRegistry.getAll(),
+      clinicVisits: ClinicVisitsRepository.getAll(),
     },
   };
 }
@@ -86,7 +101,7 @@ export function parseBackupFile(jsonText) {
 // contact was edited in both places?) that isn't needed yet for a
 // single-device, single-user app.
 export function restoreBackup(parsedBackup) {
-  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile } = parsedBackup.data;
+  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile, tests, organisms, results, clinicVisits } = parsedBackup.data;
   if (Array.isArray(contacts)) ContactRepository.replaceAll(contacts);
   if (Array.isArray(medications)) MedicationRepository.replaceAll(medications);
   if (Array.isArray(logs)) LogRepository.replaceAll(logs);
@@ -96,6 +111,12 @@ export function restoreBackup(parsedBackup) {
   if (Array.isArray(protection)) ProtectionRegistry.replaceAll(protection);
   if (Array.isArray(symptoms)) SymptomsRegistry.replaceAll(symptoms);
   if (Array.isArray(locations)) LocationsRepository.replaceAll(locations);
+  // ADDED 19 Aug 2026 — old backups (before this fix) simply won't have
+  // these keys, same graceful no-op pattern as myProfile below.
+  if (Array.isArray(tests)) TestingRepository.replaceAll(tests);
+  if (Array.isArray(organisms)) OrganismRegistry.replaceAll(organisms);
+  if (Array.isArray(results)) ResultsRegistry.replaceAll(results);
+  if (Array.isArray(clinicVisits)) ClinicVisitsRepository.replaceAll(clinicVisits);
   // Not Array.isArray — MyProfile is a singleton object, not a list.
   // Older backup files (from before 18 Aug 2026) simply won't have a
   // myProfile key at all, so this quietly no-ops on those rather than

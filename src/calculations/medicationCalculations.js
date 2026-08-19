@@ -79,11 +79,29 @@ export function computeAdherence(med) {
   const sevenDay = windowStats(doseDays, 7, today);
 
   const lastRefill = [...med.logs].filter((l) => l.type === "refill" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  // CHANGED 18 Aug 2026 — real feedback: "since refill" used to span the
+  // FULL days elapsed since the last refill log entry, treating one
+  // refill as one continuous block. That's wrong for meds dispensed in
+  // multiple containers at once — Kane's example: PrEP refilled as
+  // 5–6 containers in a single order. A refill from months ago would
+  // stretch the adherence window across every container in that order,
+  // diluting the rate instead of showing how you're doing on the
+  // container you're actually currently working through. Fixed by
+  // windowing to the current CONTAINER's cycle, not the full refill-to-
+  // today span — computed from unitsPerContainer/unitsPerDose/
+  // dosesPerDay, the same fields already used for stock/refill math
+  // elsewhere in this file, not a new concept.
+  const daysPerContainer = med.unitsPerContainer > 0 && med.dosesPerDay
+    ? Math.round(med.unitsPerContainer / (med.unitsPerDose * med.dosesPerDay))
+    : null;
   let sinceRefill;
   if (lastRefill) {
     const refillDay = new Date(lastRefill.date); refillDay.setHours(0, 0, 0, 0);
     const daysSince = Math.max(1, Math.round((today.getTime() - refillDay.getTime()) / 86400000) + 1);
-    sinceRefill = windowStats(doseDays, daysSince, today);
+    const windowDays = daysPerContainer && daysPerContainer > 0
+      ? Math.min(daysSince, ((daysSince - 1) % daysPerContainer) + 1)
+      : daysSince;
+    sinceRefill = windowStats(doseDays, windowDays, today);
   } else {
     sinceRefill = sevenDay;
   }
@@ -106,6 +124,25 @@ export function isDoseLockedOut(med, lastDoseDate) {
   const intervalHours = 24 / med.dosesPerDay;
   const hoursSinceLastDose = (Date.now() - new Date(lastDoseDate).getTime()) / 3600000;
   return hoursSinceLastDose < intervalHours * 0.8;
+}
+
+// ADDED 18 Aug 2026 — real feedback: tapping a locked "Log dose" button
+// used to do nothing (native `disabled` blocks the click entirely, and
+// the `title` tooltip it relied on for an explanation only shows on
+// hover, which doesn't exist on a touchscreen). Kane's ask: keep the
+// button tappable, show a brief flash message instead of a silent
+// no-op. This computes WHEN it unlocks — deliberately distinct from
+// nextDoseEstimate() below, which estimates when the dose is actually
+// DUE (100% of the interval) — lockout ends earlier, at 80%. Reusing
+// nextDoseEstimate's number here would tell Kane the wrong time.
+export function lockoutEndsEstimate(med, lastDoseDate) {
+  if (!lastDoseDate || med.usagePattern !== "daily" || !med.dosesPerDay) return null;
+  const intervalHours = 24 / med.dosesPerDay;
+  const unlockAt = new Date(new Date(lastDoseDate).getTime() + intervalHours * 0.8 * 3600000);
+  const hoursLeft = Math.round((unlockAt.getTime() - Date.now()) / 3600000);
+  if (hoursLeft <= 0) return "now";
+  if (hoursLeft < 24) return `~${hoursLeft}h`;
+  return `~${Math.round(hoursLeft / 24)}d`;
 }
 
 

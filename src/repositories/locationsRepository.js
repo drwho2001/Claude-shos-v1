@@ -40,8 +40,18 @@ export const DEFAULT_LOCATION = {
   relatedContactId: "",
 };
 
+// ADDED 18 Aug 2026 — real feedback: Location needed visible quick-tap
+// suggestions (see RegistrySinglePicker in SHOS_Encounters_Prototype.jsx),
+// and Kane named specific examples he wanted covered — seeding them here
+// rather than shipping an empty suggestion list on first use. "His" maps
+// to His House (the more common case); His Car exists as its own type
+// for when that distinction actually matters.
 let seedLocations = [
   { ...DEFAULT_LOCATION, id: "location_001", name: "Home", type: "My House", createdAt: "2026-07-01T09:00:00.000Z", isArchived: false },
+  { ...DEFAULT_LOCATION, id: "location_002", name: "His place", type: "🏠 His House", createdAt: "2026-07-01T09:00:00.000Z", isArchived: false },
+  { ...DEFAULT_LOCATION, id: "location_003", name: "Sauna", type: "🛀 Sauna", createdAt: "2026-07-01T09:00:00.000Z", isArchived: false },
+  { ...DEFAULT_LOCATION, id: "location_004", name: "Public", type: "🌲 Public", createdAt: "2026-07-01T09:00:00.000Z", isArchived: false },
+  { ...DEFAULT_LOCATION, id: "location_005", name: "Car", type: "My Car", createdAt: "2026-07-01T09:00:00.000Z", isArchived: false },
 ];
 
 let locations = storage.load(STORAGE_KEY, seedLocations);

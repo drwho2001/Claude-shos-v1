@@ -59,6 +59,7 @@ export const DEFAULT_PROFILE = {
   // Hosting / travel
   hosts: "",
   travels: "",
+  travelMode: [],
 
   // Availability
   availability: [],
@@ -76,6 +77,12 @@ export const DEFAULT_PROFILE = {
   length: "",
   thickness: "",
   foreskin: "",
+  // ADDED 19 Aug 2026 — real inconsistency caught during a redundancy/
+  // consistency pass: Contacts got the Uncircumcised sub-branch
+  // (average/baggy/tight/unretractable) when it was built, My Profile
+  // never did — an oversight, not a deliberate difference. Fixed for
+  // parity.
+  foreskinDetail: "",
   chastityStatus: "",
   cummer: [],
 

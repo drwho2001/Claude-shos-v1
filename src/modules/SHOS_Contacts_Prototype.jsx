@@ -1,13 +1,15 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, Search, ChevronLeft, MoreVertical, X, Archive, Settings2, Users,
   Phone, Ghost, Globe, MessageCircle, Car, AlertTriangle, Trash2, Link2,
+  Upload, Check, User, Home, MapPin,
 } from "lucide-react";
 import {
   ContactRepository, DEFAULT_CONTACT,
-  HOSTS_OPTIONS, TRAVELS_OPTIONS,
-  AVAILABILITY_OPTIONS, READILY_AVAILABLE_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MEET_AGAIN_OPTIONS,
-  LENGTH_OPTIONS, THICKNESS_OPTIONS, FORESKIN_OPTIONS, CHASTITY_OPTIONS, CUMMER_OPTIONS,
+  HOSTS_OPTIONS, TRAVELS_OPTIONS, TRAVEL_MODE_OPTIONS,
+  AVAILABILITY_OPTIONS, READILY_AVAILABLE_OPTIONS, RELATIONSHIP_TYPE_OPTIONS, MEET_AGAIN_OPTIONS, RATING_OPTIONS,
+  LENGTH_OPTIONS, GIRTH_OPTIONS, FORESKIN_OPTIONS, FORESKIN_DETAIL_OPTIONS, CHASTITY_OPTIONS,
+  CUMMER_FREQUENCY_OPTIONS, CUMMER_VOLUME_OPTIONS, CUMMER_STYLE_OPTIONS,
   PREP_DOXY_OPTIONS, DAYS_OF_WEEK, TIME_CONSTRAINT_TYPES, AVAILABILITY_RULE_TYPES,
   BDSM_ROLE_OPTIONS, SEXUAL_POSITION_OPTIONS,
 } from "../repositories/contactRepository";
@@ -23,8 +25,23 @@ import { contactEncounterSummary, sortByDateDesc, formatRelativeDate } from "../
 // New 18 Aug 2026: Kink Registry and Chems Registry now exist as real
 // modules — Stated kinks/Limits/Known chems below switch from freeform
 // TagInput to real registry-linked pickers.
-import { KinkRegistry, KINK_ROLE_OPTIONS } from "../registries/kinkRegistry";
+import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym } from "../registries/kinkRegistry";
 import { ChemsRegistry } from "../registries/chemsRegistry";
+// ADDED 18 Aug 2026 — Import Shared Profile moved here from My Profile:
+// importing creates a new Contact, so it belongs where Contacts are
+// managed. Deliberately only imports the pure parse/create functions,
+// not any UI — the sheet below is Contacts' own, self-contained, same
+// pattern as every other module this session.
+import { importProfileShareFromFile, importProfileShareFromText } from "../storage/profileShareService";
+// ADDED 19 Aug 2026 — draft autosave, real fix for in-progress edits
+// being lost on refresh. See draftStorage.js for the full reasoning.
+import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
+// ADDED 18 Aug 2026 — My Profile opens from here as a full-screen
+// overlay (Doc 1: it's not a primary-nav tab, it's a Settings sub-item;
+// Contacts is the temporary home until Settings exists). This imports
+// the already self-contained top-level screen component, not any of
+// its internals — same relationship as App.jsx has with every module.
+import MyProfileModule from "./SHOS_MyProfile_Prototype";
 
 const LIGHT = {
   bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
@@ -86,6 +103,70 @@ function SectionCard({ title, T, children }) {
     <div style={{ border: `1px solid ${T.border}`, borderRadius: radius.md, background: T.surface, padding: "4px 14px 14px", marginTop: 14 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: T.contactsTeal, textTransform: "uppercase", letterSpacing: 0.5, paddingTop: 12, marginBottom: 2 }}>{title}</div>
       {children}
+    </div>
+  );
+}
+
+// ADDED 18 Aug 2026 — moved here from My Profile: importing a shared
+// profile creates a new Contact, so it belongs where Contacts are
+// managed, not on the "about me" screen. Self-contained, same as every
+// other module's own UI this session — doesn't import UI from
+// SHOS_MyProfile_Prototype.jsx, just the pure functions it needs.
+function ImportSharedProfileSheet({ T, onClose, onImported }) {
+  const [pasteText, setPasteText] = useState("");
+  const [status, setStatus] = useState(null);
+
+  const doImportPaste = () => {
+    importProfileShareFromText(
+      pasteText,
+      (newContact) => { setStatus({ ok: true, msg: `Added "${newContact.name}" to your Contacts.` }); setPasteText(""); onImported?.(); },
+      (err) => setStatus({ ok: false, msg: err.message })
+    );
+  };
+
+  const doImportFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    importProfileShareFromFile(
+      file,
+      (newContact) => { setStatus({ ok: true, msg: `Added "${newContact.name}" to your Contacts.` }); onImported?.(); },
+      (err) => setStatus({ ok: false, msg: err.message })
+    );
+    e.target.value = "";
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 30, overflowY: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px", position: "sticky", top: 0, background: T.bg, borderBottom: `1px solid ${T.border}` }}>
+        <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onClose} />
+        <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 16, color: T.textPrimary }}>Import shared profile</span>
+      </div>
+      <div style={{ padding: 16 }}>
+        <SectionCard title="Import a shared profile" T={T}>
+          <div style={{ fontSize: 12, color: T.textSecondary, padding: "8px 0" }}>
+            Creates a brand-new Contact from someone else's shared profile. Doesn't touch or merge with any existing contact.
+          </div>
+          <div style={{ padding: "8px 0" }}>
+            <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Paste a shared profile</div>
+            <textarea value={pasteText} onChange={(e) => setPasteText(e.target.value)} rows={4}
+              placeholder="Paste the JSON text someone sent you"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box", resize: "vertical" }} />
+          </div>
+          <div onClick={doImportPaste} style={{ textAlign: "center", padding: "10px", borderRadius: radius.full, fontSize: 13, fontWeight: 600, cursor: "pointer", background: pasteText.trim() ? T.contactsTeal : T.surfaceVariant, color: pasteText.trim() ? "#FFFFFF" : T.textDisabled, marginBottom: 10 }}>
+            Import from pasted text
+          </div>
+          <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textPrimary, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <Upload size={15} /> Import from file
+            <input type="file" accept="application/json" onChange={doImportFile} style={{ display: "none" }} />
+          </label>
+        </SectionCard>
+        {status && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: radius.sm, marginTop: 14, background: status.ok ? `${T.actionGreen}15` : `${T.actionRed}15`, color: status.ok ? T.actionGreen : T.actionRed, fontSize: 13 }}>
+            {status.ok ? <Check size={16} /> : <X size={16} />}
+            {status.msg}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -158,7 +239,7 @@ function ComboField({ label, value, onChange, T, options, placeholder }) {
 // - This is why it only exists in this real, modular file — the Claude
 //   PREVIEW bundle keeps the simpler "suggest from what's already been
 //   typed" ComboField instead, since it can't make this network call.
-function AddressAutocomplete({ label, value, onChange, T, placeholder }) {
+function AddressAutocomplete({ label, value, onChange, T, placeholder, onCityDetected }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -188,6 +269,16 @@ function AddressAutocomplete({ label, value, onChange, T, placeholder }) {
 
   const pick = (place) => {
     onChange(place.display_name);
+    // ADDED 18 Aug 2026 — real gap Kane flagged: city was never
+    // auto-pulled from the selected address, even though Nominatim's
+    // response (requested with addressdetails=1 above) already includes
+    // it. Nominatim uses different keys depending on how the place is
+    // classified (a city proper vs. a town vs. a village), so check the
+    // common ones in order rather than assuming just `city` exists.
+    if (onCityDetected) {
+      const detectedCity = place.address?.city || place.address?.town || place.address?.village || place.address?.suburb;
+      if (detectedCity) onCityDetected(detectedCity);
+    }
     setResults([]);
     setOpen(false);
   };
@@ -324,7 +415,7 @@ function TagInput({ label, value, onChange, T, placeholder, suggestions = [] }) 
 // what actually closes the "Fist vs Fisting" gap TagInput's own comment
 // flagged as unsolved — one canonical registry entry per concept,
 // found case-insensitively or created new via findOrCreate.
-function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [] }) {
+function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [], resolveSynonym = (x) => x }) {
   const [draft, setDraft] = useState("");
   const listId = idFromLabel(label) + "-registry";
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
@@ -377,13 +468,18 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
   // string, because this function never split on commas the way the
   // free-text TagInput elsewhere in the app already does. Now splits
   // and resolves each piece through the registry independently.
+  // ALSO CHANGED — resolveSynonym runs on each piece before findOrCreate,
+  // so a known slang term (e.g. "watersports") resolves to the existing
+  // canonical entry ("Piss") instead of creating a near-duplicate.
+  // Identity function by default — only Kink-backed pickers pass a real
+  // one, Chems/Protection/Symptoms are unaffected.
   const commitDraft = (el) => {
     const raw = draft.trim();
     if (!raw) {
       if (el) focusNextField(el);
       return;
     }
-    const parts = raw.split(",").map((t) => normalizeTag(t.trim())).filter(Boolean);
+    const parts = raw.split(",").map((t) => resolveSynonym(normalizeTag(t.trim()))).filter(Boolean);
     const newIds = [];
     parts.forEach((part) => {
       const entry = registry.findOrCreate(part);
@@ -467,6 +563,44 @@ function AgeField({ age, ageIsApprox, onChangeAge, onChangeApprox, T }) {
           <span style={{ fontSize: 12, color: T.textSecondary }}>Approximate</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — real gap from the Notion-vs-app audit. Reads the
+// picked file as a data URL via FileReader — no upload endpoint exists
+// or is needed, everything stays local. See contactRepository.js's
+// DEFAULT_CONTACT comment for the honest localStorage-size caveat.
+function PhotoPicker({ value, onChange, T }) {
+  const inputRef = useRef(null);
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange(reader.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "8px 0" }}>
+      <div onClick={() => inputRef.current?.click()}
+        style={{ width: 64, height: 64, borderRadius: radius.full, background: T.surfaceVariant, border: `1px solid ${T.border}`, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        {value ? (
+          <img src={value} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          <User size={24} color={T.textDisabled} />
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div onClick={() => inputRef.current?.click()}
+          style={{ fontSize: 12, fontWeight: 600, color: T.contactsTeal, cursor: "pointer" }}>
+          {value ? "Change photo" : "Add photo"}
+        </div>
+        {value && (
+          <div onClick={() => onChange("")} style={{ fontSize: 12, color: T.actionRed, cursor: "pointer" }}>Remove</div>
+        )}
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} />
     </div>
   );
 }
@@ -660,15 +794,51 @@ function LinkedContactsField({ contactId, allContacts, T, refresh }) {
 }
 
 
-function ContactCard({ contact, onOpen, T }) {
+function ContactCard({ contact, onOpen, T, encounters = [] }) {
   const flaggedDontMeetAgain = contact.meetAgain === "No";
-  const methods = getContactableVia(contact);
+  // CHANGED 18 Aug 2026 — real feedback: the card was showing an icon
+  // per detected contact method, and Fabguys/Fabswingers both mapped to
+  // the same unlabeled Globe icon, so a contact with both filled showed
+  // two identical icons with no way to tell what they meant. Kane's
+  // call: the card is a quick-glance summary, not the full profile —
+  // just show Phone/Snapchat there, everything else (Fabguys,
+  // Fabswingers, other platforms) is still fully visible on the actual
+  // Contact Profile screen, one tap away.
+  const methods = getContactableVia(contact).filter((m) => m === "Phone/WhatsApp" || m === "Snapchat");
+  // ADDED 18 Aug 2026 — real "active" status, replacing the leading dot
+  // that used to just be a fixed decorative teal bullet. DEFINITION,
+  // a judgment call flagged explicitly since Kane's ask didn't specify
+  // one: an encounter within the last 90 days counts as active. A
+  // contact with NO encounter history at all (brand new, nothing
+  // logged yet) is NOT marked inactive — there's no evidence of
+  // inactivity, just no history yet, so it stays the normal color.
+  // Only a contact with a REAL gap since their last actual encounter
+  // shows red. Reuses contactEncounterSummary — the same calculation
+  // Contact Profile's Timeline already uses, not a separate one.
+  const summary = contactEncounterSummary(encounters, contact.id);
+  const daysSinceLastInteraction = summary.lastInteraction
+    ? Math.floor((Date.now() - new Date(summary.lastInteraction).getTime()) / 86400000)
+    : null;
+  const isInactive = daysSinceLastInteraction !== null && daysSinceLastInteraction > 90;
+  // Rating is stored with its emoji embedded ("😍 Love") — just the
+  // emoji character shows on the card, full label on the profile.
+  const ratingEmoji = contact.rating ? contact.rating.split(" ")[0] : null;
   return (
     <div onClick={() => onOpen(contact.id)}
-      style={{ background: T.surface, border: `1px solid ${flaggedDontMeetAgain ? T.actionRed : T.border}`, borderRadius: radius.md, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,.06)", cursor: "pointer" }}>
+      style={{ background: T.surface, border: `1px solid ${flaggedDontMeetAgain ? T.actionRed : T.border}`, borderRadius: radius.md, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,.06)", cursor: "pointer", display: "flex", gap: 12 }}>
+      {/* ADDED 19 Aug 2026 — small thumbnail, only takes up card space
+          when a photo actually exists, so contacts without one look
+          exactly as before (no empty placeholder circle cluttering
+          every card). */}
+      {contact.profilePicture && (
+        <img src={contact.profilePicture} alt="" style={{ width: 44, height: 44, borderRadius: radius.full, objectFit: "cover", flexShrink: 0 }} />
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span style={{ width: 8, height: 8, borderRadius: radius.full, background: T.contactsTeal, display: "inline-block" }} />
+        <span title={isInactive ? "No encounter in over 90 days" : undefined}
+          style={{ width: 8, height: 8, borderRadius: radius.full, background: isInactive ? T.actionRed : T.contactsTeal, display: "inline-block" }} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 15, color: T.textPrimary }}>{displayName(contact)}</span>
+        {ratingEmoji && <span style={{ fontSize: 14 }}>{ratingEmoji}</span>}
         {/* Age — tuned this round to sit close in size to the name (was
             too small a jump, 12px vs 15px reading as a much bigger drop
             than intended). Now 14px, one step down, not two. */}
@@ -676,6 +846,18 @@ function ContactCard({ contact, onOpen, T }) {
         <MethodIcons methods={methods} T={T} />
         {contact.city && <span style={{ fontSize: 12, color: T.textSecondary }}>· {contact.city}</span>}
         {contact.drives && <Car size={13} color={T.textSecondary} />}
+        {/* ADDED 18 Aug 2026 — hosts/travels indicator, Kane's ask:
+            "house or car icon" — House if they host, MapPin if they
+            travel to you instead. Mutually exclusive (hosts takes
+            priority if both apply) to keep the card from getting
+            cluttered with two icons meaning something similar. This is
+            deliberately separate from the Car icon above, which shows
+            `drives` (owns a car) — a different fact from `travels`. */}
+        {contact.hosts === "Yes" ? (
+          <Home size={13} color={T.textSecondary} />
+        ) : contact.travels === "Yes" ? (
+          <MapPin size={13} color={T.textSecondary} />
+        ) : null}
         {contact.linkedContactIds.length > 0 && <Link2 size={13} color={T.contactsTeal} />}
         {flaggedDontMeetAgain && <AlertTriangle size={13} color={T.actionRed} />}
       </div>
@@ -689,10 +871,15 @@ function ContactCard({ contact, onOpen, T }) {
       {flaggedDontMeetAgain ? (
         <div style={{ fontSize: 12, color: T.actionRed, fontWeight: 600, marginLeft: 16, marginTop: 4 }}>Don't meet again</div>
       ) : (
-        <div style={{ fontSize: 12, color: T.textDisabled, fontStyle: "italic", marginLeft: 16, marginTop: 4 }}>
-          Last interaction — not tracked yet
+        // CHANGED 18 Aug 2026 — was a permanent stub ("not tracked
+        // yet") regardless of real data. Now shows the real last
+        // encounter date via the same calculation/formatting Contact
+        // Profile's Timeline already uses.
+        <div style={{ fontSize: 12, color: T.textDisabled, fontStyle: summary.lastInteraction ? "normal" : "italic", marginLeft: 16, marginTop: 4 }}>
+          {summary.lastInteraction ? `Last interaction ${formatRelativeDate(summary.lastInteraction)}` : "No encounters logged yet"}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -703,12 +890,42 @@ function ContactCard({ contact, onOpen, T }) {
 // availability exceptions, Readily available. ──
 function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
   const isNew = !contact;
-  const [form, setForm] = useState(() => contact ? { ...contact } : { ...DEFAULT_CONTACT });
+  // ADDED 19 Aug 2026 — draft autosave, real fix for a real gap Kane
+  // flagged: in-progress edits used to live only in this component's
+  // memory, gone on any refresh. draftKey is scoped per-contact (or
+  // "new" for a fresh add) so editing one contact never clobbers a
+  // leftover draft for a different one.
+  const draftKey = `contactEdit_${contact?.id || "new"}`;
+  const [form, setForm] = useState(() => {
+    const draft = loadDraft(draftKey);
+    if (draft) return draft.data;
+    return contact ? { ...contact } : { ...DEFAULT_CONTACT };
+  });
+  const [draftRestored] = useState(() => !!loadDraft(draftKey));
+  useEffect(() => {
+    saveDraft(draftKey, form);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
   const set = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
   const canSave = form.name.trim().length > 0;
+  const doSave = () => {
+    clearDraft(draftKey);
+    onSave(form);
+  };
 
   const cityOptions = useMemo(() => getKnownCities(contacts), [contacts]);
-  const contactableViaOptions = useMemo(() => getKnownValues(contacts, "contactableVia"), [contacts]);
+  // CHANGED 18 Aug 2026 — real duplication Kane flagged: Phone/Snapchat
+  // (and Fabguys/Fabswingers) have their own dedicated fields above this
+  // one, but historically-typed values from before those fields existed
+  // were still being suggested here via getKnownValues. Filtered out
+  // explicitly rather than relying on historical data staying clean —
+  // these four are always redundant with the dedicated fields, so there's
+  // no case where suggesting them here is correct.
+  const REDUNDANT_PLATFORM_SUGGESTIONS = ["phone", "snapchat", "fabguys", "fabswingers"];
+  const contactableViaOptions = useMemo(
+    () => getKnownValues(contacts, "contactableVia").filter((v) => !REDUNDANT_PLATFORM_SUGGESTIONS.includes(v.toLowerCase().trim())),
+    [contacts]
+  );
   // kinkOptions/limitOptions/chemOptions removed 18 Aug 2026 — Stated
   // kinks/Limits/Known chems below now pull suggestions directly from
   // KinkRegistry/ChemsRegistry (real registries) instead of scanning
@@ -722,14 +939,35 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
           <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 16, color: T.textPrimary }}>{isNew ? "Add contact" : "Edit contact"}</span>
           <X size={18} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onClose} />
         </div>
+        {draftRestored && (
+          <div style={{ fontSize: 11, color: T.actionGreen, background: `${T.actionGreen}15`, borderRadius: radius.sm, padding: "6px 10px", marginBottom: 8 }}>
+            Restored unsaved changes from earlier.
+          </div>
+        )}
 
         <SectionCard T={T} title="Identity">
+          <PhotoPicker T={T} value={form.profilePicture} onChange={set("profilePicture")} />
           <TextField T={T} label="Name" value={form.name} onChange={set("name")} placeholder="Name" />
           <TextField T={T} label="Nickname (shown instead of name, if set)" value={form.nickname} onChange={set("nickname")} placeholder="Optional" />
           <AgeField T={T} age={form.age} ageIsApprox={form.ageIsApprox} onChangeAge={set("age")} onChangeApprox={set("ageIsApprox")} />
         </SectionCard>
 
+        {/* REORDERED 19 Aug 2026 — moved up from near the bottom of the
+            sheet (it used to sit after Physical & health and Notes).
+            Kane's ask for logical/intuitive ordering: how to actually
+            reach someone is one of the first things worth capturing
+            when adding a new contact, not one of the last. */}
+        <SectionCard T={T} title="Contact methods">
+          <TextField T={T} label="Phone/WhatsApp" value={form.phone} onChange={set("phone")} placeholder="e.g. +44 7700 900123" />
+          <TextField T={T} label="Snapchat" value={form.snapchat} onChange={set("snapchat")} />
+          <TextField T={T} label="Fabguys" value={form.fabguys} onChange={set("fabguys")} />
+          <TextField T={T} label="Fabswingers" value={form.fabswingers} onChange={set("fabswingers")} />
+          <AutoDetectedMethods T={T} contact={form} />
+          <TagInput T={T} label="Other platforms" value={form.contactableVia} onChange={set("contactableVia")} suggestions={contactableViaOptions} placeholder="e.g. Tinder, Bumble, Grindr" />
+        </SectionCard>
+
         <SectionCard T={T} title="Relationship">
+          <SelectField T={T} label="Rating" value={form.rating} onChange={set("rating")} options={RATING_OPTIONS} />
           <MultiSelectChips T={T} label="Relationship type" value={form.relationshipType} onChange={set("relationshipType")} options={RELATIONSHIP_TYPE_OPTIONS} />
           <TagInput T={T} label="How did we meet?" value={form.howDidWeMeet} onChange={set("howDidWeMeet")} suggestions={howMetOptions} />
           <SelectField T={T} label="Meet again?" value={form.meetAgain} onChange={set("meetAgain")} options={MEET_AGAIN_OPTIONS} />
@@ -741,15 +979,27 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
         <SectionCard T={T} title="Location & logistics">
           <SelectField T={T} label="Hosts" value={form.hosts} onChange={set("hosts")} options={HOSTS_OPTIONS} />
           <SelectField T={T} label="Travels" value={form.travels} onChange={set("travels")} options={TRAVELS_OPTIONS} />
+          {(form.travels === "Yes" || form.travels === "Sometimes") && (
+            <MultiSelectChips T={T} label="Travel mode" value={form.travelMode} onChange={set("travelMode")} options={TRAVEL_MODE_OPTIONS} />
+          )}
           <AddressAutocomplete T={T} label="Address" value={form.address} onChange={set("address")}
-            placeholder="Start typing an address..." />
+            placeholder="Start typing an address..." onCityDetected={set("city")} />
           <ComboField T={T} label="City" value={form.city} onChange={set("city")} options={cityOptions} />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
             <span style={{ fontSize: 13, color: T.textPrimary }}>Drives</span>
             <ToggleSwitch T={T} value={form.drives} onChange={set("drives")} />
           </div>
           {form.drives && (
-            <TextField T={T} label="Car details" value={form.carDetails} onChange={set("carDetails")} placeholder="e.g. Blue Ford Focus, reg ABC123" />
+            <>
+              <TextField T={T} label="Car details" value={form.carDetails} onChange={set("carDetails")} placeholder="e.g. Blue Ford Focus" />
+              {/* ADDED 18 Aug 2026 — split out from Car details: a
+                  registration plate identifies a specific vehicle (and
+                  by extension, often a specific person) — meaningfully
+                  more sensitive than "blue, Ford, hatchback", so it's
+                  kept as its own field rather than bundled into one
+                  freeform description. */}
+              <TextField T={T} label="Car registration" value={form.carRegistration} onChange={set("carRegistration")} placeholder="e.g. AB12 CDE" />
+            </>
           )}
           <MultiSelectChips T={T} label="Availability" value={form.availability} onChange={set("availability")} options={AVAILABILITY_OPTIONS} />
           <AvailabilityRuleBuilder T={T} rules={form.nonAvailabilityRules} onChange={set("nonAvailabilityRules")} />
@@ -757,8 +1007,8 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
         </SectionCard>
 
         <SectionCard T={T} title="Kink">
-          <RegistryTagPicker T={T} label="Stated kinks" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} excludeIds={form.limits} trackRole roleOptions={KINK_ROLE_OPTIONS} />
-          <RegistryTagPicker T={T} label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} excludeIds={form.statedKinks.map((s) => s.kinkId)} />
+          <RegistryTagPicker T={T} label="Stated kinks" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} excludeIds={form.limits.map((l) => l.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} />
+          <RegistryTagPicker T={T} label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} excludeIds={form.statedKinks.map((s) => s.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} />
           <MultiSelectChips T={T} label="Role" value={form.bdsmRole} onChange={set("bdsmRole")} options={BDSM_ROLE_OPTIONS} />
           <MultiSelectChips T={T} label="Position" value={form.sexualPosition} onChange={set("sexualPosition")} options={SEXUAL_POSITION_OPTIONS} />
         </SectionCard>
@@ -771,11 +1021,21 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
         </SectionCard>
 
         <SectionCard T={T} title="Physical & health">
-          <SelectField T={T} label="Length" value={form.length} onChange={set("length")} options={LENGTH_OPTIONS} />
-          <SelectField T={T} label="Thickness" value={form.thickness} onChange={set("thickness")} options={THICKNESS_OPTIONS} />
+          <SelectField T={T} label="Length (penis)" value={form.length} onChange={set("length")} options={LENGTH_OPTIONS} />
+          <SelectField T={T} label="Girth (penis)" value={form.thickness} onChange={set("thickness")} options={GIRTH_OPTIONS} />
           <SelectField T={T} label="Foreskin" value={form.foreskin} onChange={set("foreskin")} options={FORESKIN_OPTIONS} />
+          {/* ADDED 18 Aug 2026 — sub-branch, only shown/meaningful when
+              Uncircumcised — Kane's ask: the old flat list mixed
+              circumcision status with fit as if they were one choice.
+              Not shown at all for Circumcised/Unknown since fit doesn't
+              apply there. */}
+          {form.foreskin === "Uncircumcised" && (
+            <SelectField T={T} label="Foreskin fit" value={form.foreskinDetail} onChange={set("foreskinDetail")} options={FORESKIN_DETAIL_OPTIONS} />
+          )}
           <SelectField T={T} label="Chastity status" value={form.chastityStatus} onChange={set("chastityStatus")} options={CHASTITY_OPTIONS} />
-          <MultiSelectChips T={T} label="Cummer" value={form.cummer} onChange={set("cummer")} options={CUMMER_OPTIONS} />
+          <MultiSelectChips T={T} label="Cummer — frequency" value={form.cummer} onChange={set("cummer")} options={CUMMER_FREQUENCY_OPTIONS} />
+          <MultiSelectChips T={T} label="Cummer — volume" value={form.cummer} onChange={set("cummer")} options={CUMMER_VOLUME_OPTIONS} />
+          <MultiSelectChips T={T} label="Cummer — style" value={form.cummer} onChange={set("cummer")} options={CUMMER_STYLE_OPTIONS} />
           <MultiSelectChips T={T} label="Known to be on" value={form.knownPrepDoxy} onChange={set("knownPrepDoxy")} options={PREP_DOXY_OPTIONS} />
           <TextField T={T} label="Last tested date (if known)" value={form.lastTestedDate} onChange={set("lastTestedDate")} type="date" helper="Often unknown — leave blank, no pressure." />
         </SectionCard>
@@ -785,22 +1045,13 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box", resize: "vertical" }} />
         </SectionCard>
 
-        <SectionCard T={T} title="Contact methods">
-          <TextField T={T} label="Phone/WhatsApp" value={form.phone} onChange={set("phone")} placeholder="e.g. +44 7700 900123" />
-          <TextField T={T} label="Snapchat" value={form.snapchat} onChange={set("snapchat")} />
-          <TextField T={T} label="Fabguys" value={form.fabguys} onChange={set("fabguys")} />
-          <TextField T={T} label="Fabswingers" value={form.fabswingers} onChange={set("fabswingers")} />
-          <AutoDetectedMethods T={T} contact={form} />
-          <TagInput T={T} label="Other platforms" value={form.contactableVia} onChange={set("contactableVia")} suggestions={contactableViaOptions} placeholder="e.g. Tinder, Bumble, Grindr" />
-        </SectionCard>
-
         {!isNew && (
           <SectionCard T={T} title="Linked contacts">
             <LinkedContactsField T={T} contactId={form.id} allContacts={contacts} refresh={refresh} />
           </SectionCard>
         )}
 
-        <button onClick={() => canSave && onSave(form)} style={{ ...btnStyle(canSave ? T.contactsTeal : T.textDisabled, "filled"), width: "100%", padding: 12, marginTop: 16, cursor: canSave ? "pointer" : "default" }}>
+        <button onClick={() => canSave && doSave()} style={{ ...btnStyle(canSave ? T.contactsTeal : T.textDisabled, "filled"), width: "100%", padding: 12, marginTop: 16, cursor: canSave ? "pointer" : "default" }}>
           {isNew ? "Add contact" : "Save changes"}
         </button>
       </div>
@@ -893,7 +1144,19 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </div>
         {contact.nickname && <div style={{ fontSize: 12, color: T.textDisabled, marginLeft: 24 }}>Full name: {contact.name}</div>}
 
+        {/* REORDERED 19 Aug 2026 — matches the edit sheet's own reorder,
+            same reasoning: how to reach someone reads more naturally
+            near the top than after Physical & health/Notes. */}
+        <SectionCard T={T} title="Contact methods">
+          <ReadRow T={T} label="Contactable via" value={methods} />
+          <ReadRow T={T} label="Phone/WhatsApp" value={contact.phone} />
+          <ReadRow T={T} label="Snapchat" value={contact.snapchat} />
+          <ReadRow T={T} label="Fabguys" value={contact.fabguys} />
+          <ReadRow T={T} label="Fabswingers" value={contact.fabswingers} />
+        </SectionCard>
+
         <SectionCard T={T} title="Relationship">
+          <ReadRow T={T} label="Rating" value={contact.rating} />
           <ReadRow T={T} label="Relationship type" value={contact.relationshipType} />
           <ReadRow T={T} label="How did we meet?" value={contact.howDidWeMeet} />
           <ReadRow T={T} label="Meet again?" value={contact.meetAgain} />
@@ -902,10 +1165,12 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         <SectionCard T={T} title="Location & logistics">
           <ReadRow T={T} label="Hosts" value={contact.hosts} />
           <ReadRow T={T} label="Travels" value={contact.travels} />
+          <ReadRow T={T} label="Travel mode" value={contact.travelMode} />
           <ReadRow T={T} label="Address" value={contact.address} />
           <ReadRow T={T} label="City" value={contact.city} />
           <ReadRow T={T} label="Drives" value={contact.drives} />
           <ReadRow T={T} label="Car details" value={contact.carDetails} />
+          <ReadRow T={T} label="Car registration" value={contact.carRegistration} />
           <ReadRow T={T} label="Availability" value={contact.availability} />
           {contact.nonAvailabilityRules?.length > 0 && (
             <div style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13 }}>
@@ -923,7 +1188,10 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
             const name = KinkRegistry.getById(sel.kinkId)?.name;
             return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
           }).filter(Boolean)} />
-          <ReadRow T={T} label="Limits" value={contact.limits.map((id) => KinkRegistry.getById(id)?.name).filter(Boolean)} />
+          <ReadRow T={T} label="Limits" value={contact.limits.map((sel) => {
+            const name = KinkRegistry.getById(sel.kinkId)?.name;
+            return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+          }).filter(Boolean)} />
           <ReadRow T={T} label="Role" value={contact.bdsmRole} />
           <ReadRow T={T} label="Position" value={contact.sexualPosition} />
         </SectionCard>
@@ -933,9 +1201,10 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </SectionCard>
 
         <SectionCard T={T} title="Physical & health">
-          <ReadRow T={T} label="Length" value={contact.length} />
-          <ReadRow T={T} label="Thickness" value={contact.thickness} />
+          <ReadRow T={T} label="Length (penis)" value={contact.length} />
+          <ReadRow T={T} label="Girth (penis)" value={contact.thickness} />
           <ReadRow T={T} label="Foreskin" value={contact.foreskin} />
+          <ReadRow T={T} label="Foreskin fit" value={contact.foreskinDetail} />
           <ReadRow T={T} label="Chastity status" value={contact.chastityStatus} />
           <ReadRow T={T} label="Cummer" value={contact.cummer} />
           <ReadRow T={T} label="Known to be on" value={contact.knownPrepDoxy} />
@@ -946,14 +1215,6 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
           <div style={{ fontSize: 14, color: contact.notes ? T.textPrimary : T.textDisabled, fontStyle: contact.notes ? "normal" : "italic" }}>
             {contact.notes || "No notes yet."}
           </div>
-        </SectionCard>
-
-        <SectionCard T={T} title="Contact methods">
-          <ReadRow T={T} label="Contactable via" value={methods} />
-          <ReadRow T={T} label="Phone/WhatsApp" value={contact.phone} />
-          <ReadRow T={T} label="Snapchat" value={contact.snapchat} />
-          <ReadRow T={T} label="Fabguys" value={contact.fabguys} />
-          <ReadRow T={T} label="Fabswingers" value={contact.fabswingers} />
         </SectionCard>
 
         {contact.linkedContactIds.length > 0 && (
@@ -994,24 +1255,24 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
               <>
                 <div style={{ display: "flex", gap: 16, padding: "8px 0 14px", flexWrap: "wrap" }}>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "monospace" }}>{summary.count}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>{summary.count}</div>
                     <div style={{ fontSize: 11, color: T.textSecondary }}>Encounters</div>
                   </div>
                   {summary.averageEnjoyment != null && (
                     <div>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "monospace" }}>{Math.round(summary.averageEnjoyment)}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(summary.averageEnjoyment)}</div>
                       <div style={{ fontSize: 11, color: T.textSecondary }}>Avg enjoyment</div>
                     </div>
                   )}
                   {summary.highestEnjoyment != null && (
                     <div>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "monospace" }}>{summary.highestEnjoyment}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>{summary.highestEnjoyment}</div>
                       <div style={{ fontSize: 11, color: T.textSecondary }}>Highest</div>
                     </div>
                   )}
                   {summary.lastInteraction && (
                     <div>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "monospace" }}>{formatRelativeDate(summary.lastInteraction)}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>{formatRelativeDate(summary.lastInteraction)}</div>
                       <div style={{ fontSize: 11, color: T.textSecondary }}>Last seen</div>
                     </div>
                   )}
@@ -1037,15 +1298,18 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
 }
 
 // ── Contacts List ──
-function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, setQuery }) {
+function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, setQuery, onOpenMyProfile, onOpenImportProfile }) {
   const activeContacts = useMemo(() => contacts.filter((c) => !c.isArchived), [contacts]);
+  // ADDED 18 Aug 2026 — loaded once here rather than per-card, needed
+  // for the card's active-status dot (see ContactCard below).
+  const encounters = useMemo(() => EncounterRepository.getAll(), [contacts]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const searched = q
       ? activeContacts.filter((c) =>
           [c.name, c.nickname, c.phone, c.snapchat, c.fabguys, c.fabswingers, c.notes]
             .some((field) => (field || "").toLowerCase().includes(q))
-          || [...c.statedKinks.map((s) => s.kinkId), ...c.limits]
+          || [...c.statedKinks.map((s) => s.kinkId), ...c.limits.map((l) => l.kinkId)]
               .map((id) => KinkRegistry.getById(id)?.name || "")
               .some((name) => name.toLowerCase().includes(q))
         )
@@ -1061,8 +1325,18 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
 
   return (
     <div>
-      <div style={{ padding: "18px 16px 2px" }}>
+      <div style={{ padding: "18px 16px 2px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Contacts</span>
+        {/* ADDED 18 Aug 2026 — My Profile and Import Shared Profile both
+            live here now (Doc 1: My Profile isn't a primary-nav tab;
+            Import creates a Contact, so it belongs where Contacts are
+            managed). Temporary home until a real Settings screen exists
+            for My Profile and a proper Add-Contact menu exists for
+            Import — flagged in Doc 1 notes, not the final placement. */}
+        <div style={{ display: "flex", gap: 14 }}>
+          {onOpenImportProfile && <Upload size={19} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onOpenImportProfile} />}
+          {onOpenMyProfile && <User size={19} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onOpenMyProfile} />}
+        </div>
       </div>
       <div style={{ padding: "0 16px 12px", fontSize: 12, color: T.textSecondary }}>
         {activeContacts.length} active
@@ -1094,7 +1368,7 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 16px 100px" }}>
-          {filtered.map((c) => <ContactCard key={c.id} contact={c} onOpen={onOpen} T={T} />)}
+          {filtered.map((c) => <ContactCard key={c.id} contact={c} onOpen={onOpen} T={T} encounters={encounters} />)}
         </div>
       )}
 
@@ -1107,7 +1381,7 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
   );
 }
 
-export default function ContactsModule() {
+export default function ContactsModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [contacts, setContacts] = useState(() => loadContacts());
   const refresh = () => setContacts(loadContacts());
 
@@ -1116,7 +1390,27 @@ export default function ContactsModule() {
   const [editingContact, setEditingContact] = useState(null);
   const [sortBy, setSortBy] = useState("name");
   const [query, setQuery] = useState("");
+  // ADDED 18 Aug 2026 — My Profile and Import Shared Profile both open
+  // from here now (see the header icons in ContactsList above).
+  const [showMyProfile, setShowMyProfile] = useState(false);
+  const [showImportProfile, setShowImportProfile] = useState(false);
   const T = LIGHT;
+
+  // ADDED 19 Aug 2026 — Dashboard quick-add: App.jsx remounts this
+  // module fresh whenever the bottom nav switches to it (each module is
+  // a completely different component instance per tab, so switching
+  // tabs already unmounts/remounts today, independent of this feature).
+  // A mount-only effect is enough to catch "the user tapped Home's New
+  // Contact button", since that always causes a fresh mount here.
+  // onConsumedQuickAdd resets App.jsx's flag so navigating here again
+  // manually (via the bottom nav) doesn't re-trigger the add sheet.
+  useEffect(() => {
+    if (openAddOnMount) {
+      setEditingContact({});
+      onConsumedQuickAdd?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openProfile = (id) => { setActiveContactId(id); setScreen("profile"); };
   const backToList = () => { setScreen("list"); refresh(); };
@@ -1133,10 +1427,11 @@ export default function ContactsModule() {
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: T.bg, minHeight: "100vh", display: "flex", justifyContent: "center" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`}</style>
       <div style={{ width: 390, background: T.bg, minHeight: "100vh", borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}` }}>
         {screen === "list" ? (
-          <ContactsList contacts={contacts} T={T} onOpen={openProfile} onAdd={() => setEditingContact({})} sortBy={sortBy} setSortBy={setSortBy} query={query} setQuery={setQuery} />
+          <ContactsList contacts={contacts} T={T} onOpen={openProfile} onAdd={() => setEditingContact({})} sortBy={sortBy} setSortBy={setSortBy} query={query} setQuery={setQuery}
+            onOpenMyProfile={() => setShowMyProfile(true)} onOpenImportProfile={() => setShowImportProfile(true)} />
         ) : (
           <ContactProfile contactId={activeContactId} T={T} onBack={backToList} onEdit={(id) => setEditingContact(ContactRepository.getById(id))} onOpenContact={openProfile} refresh={refresh} />
         )}
@@ -1145,12 +1440,19 @@ export default function ContactsModule() {
           <ContactEditSheet contact={editingContact.id ? editingContact : null} contacts={contacts} onSave={saveEdit} onClose={() => setEditingContact(null)} refresh={refresh} T={T} />
         )}
 
-        <div style={{ position: "fixed", bottom: 0, width: 390, background: T.surface, borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-around", padding: "10px 0 14px" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-            <Users size={22} color={T.navActive} strokeWidth={2.5} />
-            <span style={{ fontSize: 10, color: T.navActive, fontWeight: 600 }}>Contacts</span>
+        {/* CHANGED 18 Aug 2026 — removed this module's own static, non-
+            functional bottom bar (it only ever showed "Contacts",
+            regardless of which screen was actually active — the exact
+            inconsistency Kane flagged). The real persistent nav now
+            lives once, in App.jsx, shared across every module. */}
+        {showMyProfile && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 40 }}>
+            <MyProfileModule onClose={() => setShowMyProfile(false)} />
           </div>
-        </div>
+        )}
+        {showImportProfile && (
+          <ImportSharedProfileSheet T={T} onClose={() => setShowImportProfile(false)} onImported={refresh} />
+        )}
       </div>
     </div>
   );

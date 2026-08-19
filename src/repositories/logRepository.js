@@ -32,6 +32,15 @@ import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_logs";
 
+// ADDED 19 Aug 2026 — real gap found in the Notion-vs-app audit, Kane
+// confirmed both wanted: Notion's Medications Log tracked Reason
+// (Routine/Prevention/Treatment/Waste) and Side effects per entry;
+// the app's log entries had neither. Both optional/multi-select,
+// matching Notion's real values exactly.
+export const REASON_OPTIONS = ["Routine", "Prevention", "Treatment", "Waste"];
+export const SIDE_EFFECT_OPTIONS = ["Malaise", "Fever", "Diarrhoea", "Vomiting", "Nausea"];
+const DEFAULT_LOG_ENTRY = { reason: [], sideEffects: [], notes: "" };
+
 // ---------------------------------------------------------------------
 // Seed data — flattened from the existing prototype's nested
 // `med.logs` arrays. Each entry now carries its own id and the id of
@@ -110,18 +119,21 @@ export const LogRepository = {
   // entries; callers that want to exclude them (e.g. stock math) filter
   // on `voided` themselves, same principle as isArchived above.
   getForMedication(medicationId) {
-    return structuredClone(logs.filter((l) => l.medicationId === medicationId));
+    return structuredClone(logs.filter((l) => l.medicationId === medicationId).map((l) => ({ ...DEFAULT_LOG_ENTRY, ...l })));
   },
 
   // Every log entry across every medication — what the cross-medication
   // Log tab feed needs. Returns copies, not the live stored array/objects
   // — same reasoning as every other repository's getAll().
   getAll() {
-    return structuredClone(logs);
+    return structuredClone(logs.map((l) => ({ ...DEFAULT_LOG_ENTRY, ...l })));
   },
 
   // Creates a new log entry (a Dose Taken, Refill, or Waste/Lost event).
-  // Fills in id and voided automatically.
+  // Fills in id and voided automatically. reason/sideEffects/notes are
+  // optional — most dose entries won't set them, same as Notion's own
+  // schema (Reason and Side effects were never required fields there
+  // either).
   create(data) {
     const newEntry = {
       id: generateLogId(),
@@ -130,6 +142,9 @@ export const LogRepository = {
       delta: data.delta, // signed: negative for dose/waste, positive for refill
       date: data.date,
       voided: false,
+      reason: data.reason ?? [],
+      sideEffects: data.sideEffects ?? [],
+      notes: data.notes ?? "",
     };
     logs = [...logs, newEntry];
     persist();

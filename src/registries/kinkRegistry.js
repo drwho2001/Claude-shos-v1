@@ -15,8 +15,31 @@ import { createSimpleRegistry } from "./simpleRegistry.js";
 export const KinkRegistry = createSimpleRegistry({
   storageKey: "shos_kink_registry",
   idPrefix: "kink",
-  seedNames: ["Impact Play", "Praise", "Rimming", "Fisting"],
+  seedNames: ["Impact Play", "Praise", "Rimming", "Fisting", "Piss"],
 });
+
+// ADDED 18 Aug 2026 — real feedback: typing a common synonym (e.g.
+// "watersports") should resolve to the existing canonical entry
+// ("Piss") instead of creating a near-duplicate. Deliberately a small,
+// explicit map — not automatic fuzzy-matching, which risks false-
+// positive merges of genuinely different kinks. Expand as real synonym
+// gaps turn up in use, rather than trying to anticipate every possible
+// term upfront.
+const KINK_SYNONYMS = {
+  "watersports": "Piss",
+  "golden showers": "Piss",
+  "ws": "Piss",
+};
+
+// Resolves a typed name to its canonical registry name if it's a known
+// synonym, otherwise returns the name unchanged. Case-insensitive.
+// Used by RegistryTagPicker (see its optional `resolveSynonym` prop)
+// wherever it's backed by KinkRegistry specifically — Chems/Protection/
+// Symptoms don't pass this, so they're unaffected.
+export function resolveKinkSynonym(name) {
+  const match = KINK_SYNONYMS[name.trim().toLowerCase()];
+  return match || name;
+}
 
 // ADDED 18 Aug 2026 — Kane's real-world need: for kinks where it
 // changes future-meet intentions (his own example: fisting), track
