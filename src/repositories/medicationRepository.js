@@ -171,7 +171,24 @@ function generateMedicationId() {
 // (the strength of a single unit, e.g. "245mg" — distinct from
 // unitsPerDose, which is how many units make up one dose, not how
 // strong each unit is).
-export const ROUTE_OPTIONS = ["Oral", "IM - Gluteal", "IM - Deltoid", "SubQ"];
+// CHANGED 19 Aug 2026 — added "Injection" as a generic catch-all after
+// the specific IM/SubQ routes, per Kane's ask — covers "yes it's
+// injected" without committing to a specific site when that's not
+// meaningful to record.
+export const ROUTE_OPTIONS = ["Oral", "IM - Gluteal", "IM - Deltoid", "SubQ", "Injection"];
+// ADDED 19 Aug 2026 — real gap from Kane's testing: dose strength
+// (e.g. "245mg") was one free-text field, easy to typo the unit and
+// impossible to display the correct µ symbol consistently. Split into
+// a number + a real dropdown.
+export const DOSE_UNIT_OPTIONS = ["ng", "µg", "mg", "g"];
+// ADDED 19 Aug 2026 — Kane's ask: a medication TYPE (pill/injection/
+// cream/etc) — deliberately distinct from `unit`, which is the
+// counting unit used in the actual stock/dose math (tablet, capsule,
+// mL...). medicationType is a broader user-facing category, mainly for
+// display/icon purposes, and doesn't drive any calculation the way
+// `unit` does — kept separate rather than overloading one field with
+// two different jobs.
+export const MEDICATION_TYPE_OPTIONS = ["Pill/Tablet", "Capsule", "Injection", "Cream/Gel", "Patch", "Liquid", "Other"];
 
 const DEFAULT_MEDICATION = {
   name: "", unit: "", usagePattern: "daily",
@@ -180,7 +197,14 @@ const DEFAULT_MEDICATION = {
   refillThreshold: 0, defaultRefillQuantity: 0,
   usualSupplier: "", refillRequestedAt: null,
   isArchived: false, sortOrder: 0,
-  route: "", dosePerUnit: "",
+  route: "", medicationType: "",
+  // CHANGED 19 Aug 2026 — dosePerUnit (one free-text string) replaced
+  // with doseStrengthValue (number) + doseStrengthUnit (real dropdown,
+  // see DOSE_UNIT_OPTIONS) — this field only existed for a few hours
+  // before Kane's own testing flagged the free-text version as worth
+  // restructuring, so replacing it outright rather than keeping the
+  // old shape around for compatibility it never really needed.
+  doseStrengthValue: "", doseStrengthUnit: "",
 };
 
 export const MedicationRepository = {
@@ -219,7 +243,9 @@ export const MedicationRepository = {
       isArchived: false,
       sortOrder: medications.length,
       route: data.route ?? "",
-      dosePerUnit: data.dosePerUnit ?? "",
+      medicationType: data.medicationType ?? "",
+      doseStrengthValue: data.doseStrengthValue ?? "",
+      doseStrengthUnit: data.doseStrengthUnit ?? "",
     };
     medications = [...medications, newMedication];
     persist();

@@ -3,7 +3,6 @@ dist
 dist-ssr
 *.local
 
-# Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -14,7 +13,6 @@ dist-ssr
 *.sln
 *.sw?
 
-# Logs
 logs
 *.log
 npm-debug.log*

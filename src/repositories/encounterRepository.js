@@ -67,9 +67,15 @@ export const ENCOUNTER_TYPE_OPTIONS = ["Hookup", "Group", "Date/Chill", "Sauna",
 // changed, splitting the "- giving"/"- receiving" pairs into two
 // columns and showing everything else in a third group below, not this
 // list itself.
+// CHANGED 19 Aug 2026 — reordered per Kane's ask (Oral > Rimming >
+// Fingering > Anal > Vaginal), and Vaginal added as a new giving/
+// receiving pair — didn't exist as an option before.
 export const MY_POSITION_OPTIONS = [
-  "Fingering - giving", "Fingering - receiving", "Oral - giving", "Oral - receiving",
-  "Rimming - giving", "Rimming - receiving", "Anal - giving", "Anal - receiving",
+  "Oral - giving", "Oral - receiving",
+  "Rimming - giving", "Rimming - receiving",
+  "Fingering - giving", "Fingering - receiving",
+  "Anal - giving", "Anal - receiving",
+  "Vaginal - giving", "Vaginal - receiving",
   "Kissing", "Cuddling", "Groping", "Mutual masturbation", "Kink", "Toys",
 ];
 
@@ -78,7 +84,14 @@ export const CUM_LOCATION_OPTIONS = [
   "External - Body/Face", "External - Hand", "Didn't happen",
 ];
 
-export const MY_ROLE_OPTIONS = ["Vanilla / N/A", "Sub", "Switch", "Dom", "Neither", "Dom, Switch", "N/A"];
+// CHANGED 19 Aug 2026 — real feedback: "Dom, Switch" was a leftover
+// combo value from before Dom and Switch existed as separate options —
+// redundant now that both exist individually, removed. "Neither" also
+// dropped — Kane's own reordering explicitly listed only these 5,
+// and it overlapped conceptually with N/A anyway. Reordered to Dom >
+// Switch > Sub > Vanilla > N/A, and "Vanilla / N/A" split into its
+// own two separate options rather than one combined choice.
+export const MY_ROLE_OPTIONS = ["Dom", "Switch", "Sub", "Vanilla", "N/A"];
 
 export const PREP_COVERAGE_OPTIONS = [
   "Adequate - daily (≥4/week)", "Adequate - Event-based (2-1-1)",

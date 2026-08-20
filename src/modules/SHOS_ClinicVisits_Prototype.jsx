@@ -236,7 +236,7 @@ function VisitEditSheet({ visitId, onClose, onSaved, T }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 50, overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 200, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", position: "sticky", top: 0, background: T.bg, borderBottom: `1px solid ${T.border}`, zIndex: 1 }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onClose} />
         <span style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary }}>{isNew ? "New visit" : "Edit visit"}</span>

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, Search, ChevronLeft, MoreVertical, X, Archive, Settings2, Users,
   Phone, Ghost, Globe, MessageCircle, Car, AlertTriangle, Trash2, Link2,
-  Upload, Check, User, Home, MapPin,
+  Upload, Download, Check, User, Home, MapPin,
 } from "lucide-react";
 import {
   ContactRepository, DEFAULT_CONTACT,
@@ -13,7 +13,7 @@ import {
   PREP_DOXY_OPTIONS, DAYS_OF_WEEK, TIME_CONSTRAINT_TYPES, AVAILABILITY_RULE_TYPES,
   BDSM_ROLE_OPTIONS, SEXUAL_POSITION_OPTIONS,
 } from "../repositories/contactRepository";
-import { getKnownCities, getKnownValues, getCompletenessScore, getContactableVia, normalizeTag } from "../calculations/contactCalculations";
+import { getKnownCities, getKnownValues, getCompletenessScore, getContactableVia, normalizeTag, extractKinkRoleFromText } from "../calculations/contactCalculations";
 // New 18 Aug 2026: Encounters module now exists, so the Timeline
 // section below can read real data instead of showing the "not built
 // yet" stub. Read-only from Contacts' side — Contacts never writes to
@@ -136,7 +136,7 @@ function ImportSharedProfileSheet({ T, onClose, onImported }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 30, overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 200, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "16px", position: "sticky", top: 0, background: T.bg, borderBottom: `1px solid ${T.border}` }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onClose} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 16, color: T.textPrimary }}>Import shared profile</span>
@@ -473,19 +473,35 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
   // canonical entry ("Piss") instead of creating a near-duplicate.
   // Identity function by default — only Kink-backed pickers pass a real
   // one, Chems/Protection/Symptoms are unaffected.
+  // CHANGED 19 Aug 2026 — real gap from the ~90-item feedback batch:
+  // trackRole pickers now extract a role word (Top/Bottom/Vers) from
+  // each comma-separated piece BEFORE resolving it against the registry,
+  // so "fisting top, piss bottom" becomes two selections with their
+  // roles already set, instead of one literal "Fisting Top" kink and a
+  // role that still had to be set afterwards via the tap-to-cycle badge.
+  // Non-trackRole pickers (Chems/Protection/Symptoms) are unaffected —
+  // extractKinkRoleFromText only runs when trackRole/roleOptions apply.
   const commitDraft = (el) => {
     const raw = draft.trim();
     if (!raw) {
       if (el) focusNextField(el);
       return;
     }
-    const parts = raw.split(",").map((t) => resolveSynonym(normalizeTag(t.trim()))).filter(Boolean);
-    const newIds = [];
-    parts.forEach((part) => {
-      const entry = registry.findOrCreate(part);
-      if (entry && !hasSelection(entry.id) && !newIds.includes(entry.id)) newIds.push(entry.id);
+    const rawParts = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    const newSelections = [];
+    rawParts.forEach((rawPart) => {
+      const { text, role } = trackRole ? extractKinkRoleFromText(rawPart, roleOptions) : { text: rawPart, role: null };
+      const resolved = resolveSynonym(normalizeTag(text));
+      if (!resolved) return;
+      const entry = registry.findOrCreate(resolved);
+      if (entry && !hasSelection(entry.id) && !newSelections.some((s) => s.id === entry.id)) {
+        newSelections.push({ id: entry.id, role });
+      }
     });
-    addEntries(newIds);
+    if (newSelections.length > 0) {
+      if (trackRole) onChange([...value, ...newSelections.map((s) => ({ kinkId: s.id, role: s.role }))]);
+      else onChange([...value, ...newSelections.map((s) => s.id)]);
+    }
     setDraft("");
   };
 
@@ -933,18 +949,32 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
   const howMetOptions = useMemo(() => getKnownValues(contacts, "howDidWeMeet"), [contacts]);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 50 }} onClick={onClose}>
-      <div data-contact-sheet style={{ background: T.bg, width: "100%", maxHeight: "88vh", overflowY: "auto", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 20 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, background: T.bg, paddingBottom: 4, zIndex: 1 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
+      {/* CHANGED 19 Aug 2026 — real fix, Kane's ask: Save was buried at
+          the end of the scrollable content, so on a real device you had
+          to scroll all the way down to find it — hence "can't see save
+          function". Restructured into header / scrollable middle /
+          sticky bottom action bar, so Save (and the new Clear button)
+          are always visible regardless of scroll position. Save is now
+          full-width, accent-colored, and large, per Kane's explicit ask. */}
+      <div data-contact-sheet style={{ background: T.bg, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 20px 4px", flexShrink: 0 }}>
           <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 16, color: T.textPrimary }}>{isNew ? "Add contact" : "Edit contact"}</span>
           <X size={18} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onClose} />
         </div>
         {draftRestored && (
-          <div style={{ fontSize: 11, color: T.actionGreen, background: `${T.actionGreen}15`, borderRadius: radius.sm, padding: "6px 10px", marginBottom: 8 }}>
-            Restored unsaved changes from earlier.
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "0 20px 8px", fontSize: 11, color: T.actionGreen, background: `${T.actionGreen}15`, borderRadius: radius.sm, padding: "6px 10px", flexShrink: 0 }}>
+            <span>Restored unsaved changes from earlier.</span>
+            {/* ADDED 19 Aug 2026 — Kane's ask: a way to discard a
+                restored draft and start clean instead of continuing it. */}
+            <span onClick={() => { clearDraft(draftKey); setForm(contact ? { ...contact } : { ...DEFAULT_CONTACT }); }}
+              style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline", flexShrink: 0 }}>
+              Clear & start fresh
+            </span>
           </div>
         )}
 
+        <div style={{ overflowY: "auto", padding: "0 20px", flex: 1 }}>
         <SectionCard T={T} title="Identity">
           <PhotoPicker T={T} value={form.profilePicture} onChange={set("profilePicture")} />
           <TextField T={T} label="Name" value={form.name} onChange={set("name")} placeholder="Name" />
@@ -1050,10 +1080,13 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
             <LinkedContactsField T={T} contactId={form.id} allContacts={contacts} refresh={refresh} />
           </SectionCard>
         )}
+        </div>
 
-        <button onClick={() => canSave && doSave()} style={{ ...btnStyle(canSave ? T.contactsTeal : T.textDisabled, "filled"), width: "100%", padding: 12, marginTop: 16, cursor: canSave ? "pointer" : "default" }}>
-          {isNew ? "Add contact" : "Save changes"}
-        </button>
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <button onClick={() => canSave && doSave()} style={{ ...btnStyle(canSave ? T.contactsTeal : T.textDisabled, "filled"), width: "100%", padding: 16, fontSize: 16, fontWeight: 700, cursor: canSave ? "pointer" : "default" }}>
+            {isNew ? "Add contact" : "Save changes"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1334,7 +1367,11 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
             for My Profile and a proper Add-Contact menu exists for
             Import — flagged in Doc 1 notes, not the final placement. */}
         <div style={{ display: "flex", gap: 14 }}>
-          {onOpenImportProfile && <Upload size={19} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onOpenImportProfile} />}
+          {/* CHANGED 19 Aug 2026 — real icon confusion Kane flagged:
+              Upload reads as "sending data out", which is backwards for
+              an action that brings someone else's shared profile IN.
+              Download's arrow-into-tray matches the actual direction. */}
+          {onOpenImportProfile && <Download size={19} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onOpenImportProfile} />}
           {onOpenMyProfile && <User size={19} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onOpenMyProfile} />}
         </div>
       </div>
@@ -1372,10 +1409,14 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
         </div>
       )}
 
-      <div style={{ position: "fixed", bottom: 76, width: 390, display: "flex", justifyContent: "flex-end", padding: "0 20px", pointerEvents: "none" }}>
-        <div onClick={onAdd} style={{ width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "auto", boxShadow: "0 2px 8px rgba(0,0,0,.25)", cursor: "pointer" }}>
-          <Plus size={24} color={T.fabIcon} />
-        </div>
+      {/* CHANGED 19 Aug 2026 — real bugs Kane flagged: this used to
+          assume a fixed 390px-wide container (breaks on any other
+          screen width) and sat at a different vertical offset than
+          Encounters' own Add button. Both now anchor to the real
+          viewport edge (`right`, not a fixed-width wrapper) and clear
+          the nav bar by the same 90px on both modules. */}
+      <div onClick={onAdd} style={{ position: "fixed", bottom: 90, right: 20, width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 8px rgba(0,0,0,.25)", cursor: "pointer", zIndex: 20 }}>
+        <Plus size={24} color={T.fabIcon} />
       </div>
     </div>
   );
@@ -1446,7 +1487,7 @@ export default function ContactsModule({ openAddOnMount = false, onConsumedQuick
             inconsistency Kane flagged). The real persistent nav now
             lives once, in App.jsx, shared across every module. */}
         {showMyProfile && (
-          <div style={{ position: "fixed", inset: 0, zIndex: 40 }}>
+          <div style={{ position: "fixed", inset: 0, zIndex: 210 }}>
             <MyProfileModule onClose={() => setShowMyProfile(false)} />
           </div>
         )}

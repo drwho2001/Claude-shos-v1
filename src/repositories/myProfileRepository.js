@@ -100,6 +100,30 @@ export const DEFAULT_PROFILE = {
   // someone else.
   aboutMeNotes: "",
 
+  // ADDED 19 Aug 2026 — Allergies + Emergency information, for Clinic
+  // Card (Doc 4 §10). Deliberately placed on THIS repository — same
+  // "facts about Kane himself" reasoning as knownPrepDoxy/
+  // lastTestedDate above — rather than a brand-new storage singleton
+  // just for two small fields (would be premature structure for a
+  // single-user app, the same "scale discipline" judgment applied
+  // throughout this project).
+  //
+  // CRITICAL, NOT the same as the rest of this file: everything else
+  // in DEFAULT_PROFILE is deliberately shareable (that's this file's
+  // whole purpose — see the header comment). These four fields are the
+  // ONE exception — clinical/personal-safety information with real
+  // downside if it ever leaked into a shared dating-profile blob and
+  // zero benefit to a hookup partner seeing it, unlike PrEP/Doxy status
+  // above (which Kane explicitly confirmed IS shareable). See
+  // profileShareService.js's mapShareToContactData() — these four are
+  // DELIBERATELY absent from that function's explicit field list, not
+  // a gap the next field-completeness audit should "fix". Flagged
+  // there too, so both sides of this deliberate exception are visible.
+  allergies: [],
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+  emergencyNotes: "",
+
   updatedAt: null,
 };
 

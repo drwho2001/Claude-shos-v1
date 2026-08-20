@@ -119,6 +119,19 @@ export function mapShareToContactData(parsedShare) {
     // omitted here — DEFAULT_CONTACT's own defaults fill those in via
     // ContactRepository.create(), exactly as if a human had left them
     // blank on a brand-new contact card.
+    //
+    // ADDED 19 Aug 2026 — also deliberately NOT mapped here:
+    // allergies, emergencyContactName, emergencyContactPhone,
+    // emergencyNotes. These four exist on DEFAULT_PROFILE (see
+    // myProfileRepository.js) purely for Clinic Card — clinical/
+    // personal-safety data with real downside if it ever reached a
+    // hookup partner via a shared profile, and zero benefit to them.
+    // If a future field-completeness audit flags these as "missing"
+    // from this mapping, that's this comment confirming it's a
+    // deliberate exclusion, not the same silent-drop bug class caught
+    // twice earlier this project (travelMode, foreskinDetail) — those
+    // were fields that SHOULD have been shareable and got missed by
+    // accident; these four should NOT be shareable, on purpose.
   };
 }
 

@@ -42,6 +42,12 @@ import { ResultsRegistry } from "../registries/resultsRegistry.js";
 // immediately, not after the fact this time, having just caught Testing
 // missing from here for a full session.
 import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository.js";
+// ADDED 19 Aug 2026, same session Symptom Log was built — added
+// immediately, not after the fact, having caught Testing missing from
+// here for a full session and Clinic Visits' own near-miss earlier.
+import { SymptomLogRepository } from "../repositories/symptomLogRepository.js";
+import { VaccinationRepository } from "../repositories/vaccinationRepository.js";
+import { EpisodeRepository } from "../repositories/episodeRepository.js";
 
 // Doc 5 §8: "Every export/backup file stamps: schema version, migration
 // version, app version." Schema version bumps only when a backup file's
@@ -50,29 +56,93 @@ import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository.j
 const SCHEMA_VERSION = 1;
 const APP_VERSION = "0.1.0-prototype";
 
+// ADDED 19 Aug 2026 — real ask from the ~90-item feedback batch:
+// "selective export — default is export everything, but Healthcare/
+// Contacts/Encounters (and individual items within each) should be
+// optionally deselectable." This is the single canonical grouping the
+// Settings UI renders checkboxes from — same "one place changes for a
+// new module" philosophy as the rest of this file: adding a module
+// here is the only step needed to make it selectively exportable too.
+// Groups mirror the app's own primary-nav/Doc-1 shape (Contacts /
+// Activity / Medication / Healthcare), plus two groups Doc 1 doesn't
+// name as their own nav destinations but that are real, separately
+// meaningful data: the five registries (Kink/Chems/Protection/
+// Symptoms/Locations) as one group, and My Profile as its own —
+// mirrors "individual items within each" for Healthcare and Medication
+// specifically, where more than one real data key exists per group.
+export const EXPORT_GROUPS = [
+  { key: "contacts", label: "Contacts", items: [{ dataKey: "contacts", label: "Contacts" }] },
+  { key: "activity", label: "Activity (Encounters)", items: [{ dataKey: "encounters", label: "Encounters" }] },
+  { key: "medication", label: "Medication", items: [
+    { dataKey: "medications", label: "Medications" },
+    { dataKey: "logs", label: "Dose / refill / waste log" },
+  ] },
+  { key: "healthcare", label: "Healthcare", items: [
+    { dataKey: "tests", label: "Tests" },
+    { dataKey: "clinicVisits", label: "Clinic Visits" },
+    { dataKey: "symptomLog", label: "Symptom Log" },
+    { dataKey: "vaccinations", label: "Vaccinations" },
+    { dataKey: "episodes", label: "Timeline episodes" },
+    { dataKey: "organisms", label: "Organism Registry" },
+    { dataKey: "results", label: "Results Registry" },
+  ] },
+  { key: "registries", label: "Kink / Chems / Protection / Symptoms / Locations", items: [
+    { dataKey: "kinks", label: "Kink Registry" },
+    { dataKey: "chems", label: "Chems Registry" },
+    { dataKey: "protection", label: "Protection Registry" },
+    { dataKey: "symptoms", label: "Symptoms Registry" },
+    { dataKey: "locations", label: "Locations" },
+  ] },
+  { key: "profile", label: "My Profile", items: [{ dataKey: "myProfile", label: "My Profile" }] },
+];
+
 // Pure data assembly — no browser APIs touched here, so this part is
 // fully testable outside a real browser (and was).
-export function buildBackup() {
+//
+// CHANGED 19 Aug 2026 — accepts an optional `includeKeys` (a Set or
+// array of the `dataKey` values above). Omitted/null = full export,
+// unchanged default behavior for every existing caller (Settings'
+// plain "Export backup" button, and both restore paths, which never
+// pass this argument at all). When provided, only those data keys are
+// gathered — every repository is still called through its existing
+// getAll()/getProfile(), nothing about how data is READ changes, only
+// which of the results get bundled into the file.
+export function buildBackup(includeKeys = null) {
+  const allData = {
+    contacts: ContactRepository.getAll(),
+    medications: MedicationRepository.getAll(),
+    logs: LogRepository.getAll(),
+    encounters: EncounterRepository.getAll(),
+    kinks: KinkRegistry.getAll(),
+    chems: ChemsRegistry.getAll(),
+    protection: ProtectionRegistry.getAll(),
+    symptoms: SymptomsRegistry.getAll(),
+    locations: LocationsRepository.getAll(),
+    myProfile: MyProfileRepository.getProfile(),
+    tests: TestingRepository.getAll(),
+    organisms: OrganismRegistry.getAll(),
+    results: ResultsRegistry.getAll(),
+    clinicVisits: ClinicVisitsRepository.getAll(),
+    symptomLog: SymptomLogRepository.getAll(),
+    vaccinations: VaccinationRepository.getAll(),
+    episodes: EpisodeRepository.getAll(),
+  };
+  const keySet = includeKeys ? new Set(includeKeys) : null;
+  const data = keySet
+    ? Object.fromEntries(Object.entries(allData).filter(([k]) => keySet.has(k)))
+    : allData;
   return {
     schemaVersion: SCHEMA_VERSION,
     appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
-    data: {
-      contacts: ContactRepository.getAll(),
-      medications: MedicationRepository.getAll(),
-      logs: LogRepository.getAll(),
-      encounters: EncounterRepository.getAll(),
-      kinks: KinkRegistry.getAll(),
-      chems: ChemsRegistry.getAll(),
-      protection: ProtectionRegistry.getAll(),
-      symptoms: SymptomsRegistry.getAll(),
-      locations: LocationsRepository.getAll(),
-      myProfile: MyProfileRepository.getProfile(),
-      tests: TestingRepository.getAll(),
-      organisms: OrganismRegistry.getAll(),
-      results: ResultsRegistry.getAll(),
-      clinicVisits: ClinicVisitsRepository.getAll(),
-    },
+    // Stamped so a partial export is honestly distinguishable from a
+    // full backup at a glance (e.g. if someone finds the file later
+    // and wonders why restoring it didn't bring everything back) —
+    // restoreBackup() itself doesn't need this flag, since its
+    // existing Array.isArray()-per-key checks already no-op cleanly
+    // on any key that's simply absent from the file.
+    ...(keySet ? { selective: true } : {}),
+    data,
   };
 }
 
@@ -101,7 +171,7 @@ export function parseBackupFile(jsonText) {
 // contact was edited in both places?) that isn't needed yet for a
 // single-device, single-user app.
 export function restoreBackup(parsedBackup) {
-  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile, tests, organisms, results, clinicVisits } = parsedBackup.data;
+  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile, tests, organisms, results, clinicVisits, symptomLog, vaccinations, episodes } = parsedBackup.data;
   if (Array.isArray(contacts)) ContactRepository.replaceAll(contacts);
   if (Array.isArray(medications)) MedicationRepository.replaceAll(medications);
   if (Array.isArray(logs)) LogRepository.replaceAll(logs);
@@ -117,6 +187,9 @@ export function restoreBackup(parsedBackup) {
   if (Array.isArray(organisms)) OrganismRegistry.replaceAll(organisms);
   if (Array.isArray(results)) ResultsRegistry.replaceAll(results);
   if (Array.isArray(clinicVisits)) ClinicVisitsRepository.replaceAll(clinicVisits);
+  if (Array.isArray(symptomLog)) SymptomLogRepository.replaceAll(symptomLog);
+  if (Array.isArray(vaccinations)) VaccinationRepository.replaceAll(vaccinations);
+  if (Array.isArray(episodes)) EpisodeRepository.replaceAll(episodes);
   // Not Array.isArray — MyProfile is a singleton object, not a list.
   // Older backup files (from before 18 Aug 2026) simply won't have a
   // myProfile key at all, so this quietly no-ops on those rather than
@@ -137,15 +210,16 @@ export function restoreBackup(parsedBackup) {
 // claiming more than was actually checked.
 // ---------------------------------------------------------------------
 
-export function exportBackup() {
-  const backup = buildBackup();
+export function exportBackup(includeKeys = null) {
+  const backup = buildBackup(includeKeys);
   const json = JSON.stringify(backup, null, 2);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const dateStamp = new Date().toISOString().slice(0, 10);
+  const suffix = includeKeys ? "-selective" : "";
   const a = document.createElement("a");
   a.href = url;
-  a.download = `shos-backup-${dateStamp}.json`;
+  a.download = `shos-backup-${dateStamp}${suffix}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

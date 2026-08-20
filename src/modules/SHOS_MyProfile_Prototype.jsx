@@ -363,7 +363,7 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
   const set = (field) => (value) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <div data-myprofile-sheet style={{ position: "fixed", inset: 0, background: T.bg, overflowY: "auto", zIndex: 50 }}>
+    <div data-myprofile-sheet style={{ position: "fixed", inset: 0, background: T.bg, overflowY: "auto", zIndex: 200 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", position: "sticky", top: 0, background: T.bg, borderBottom: `1px solid ${T.border}`, zIndex: 1 }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onCancel} />
         <span style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary }}>Edit My Profile</span>
@@ -447,6 +447,24 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
 
         <SectionCard title="About me" T={T}>
           <TextAreaField label="A short note about yourself" value={form.aboutMeNotes} onChange={set("aboutMeNotes")} T={T} placeholder="Not shown to anyone unless you share your profile." />
+        </SectionCard>
+
+        {/* ADDED 19 Aug 2026 — Clinic Card's two real, previously-flagged
+            gaps (Allergies, Emergency information), Kane's explicit call
+            on where they should live. Deliberately its own section,
+            visually and functionally separate from everything above it:
+            NONE of these three fields are included when you share your
+            profile — see profileShareService.js's mapShareToContactData()
+            for the enforcement, this banner is just making that visible
+            here too so it's never a surprise. */}
+        <SectionCard title="Clinical & emergency info (never shared)" T={T}>
+          <div style={{ fontSize: 11, color: T.textDisabled, marginBottom: 8, fontStyle: "italic" }}>
+            For your own Clinic Card only — excluded from Share/Export, even if you share your full profile with someone.
+          </div>
+          <TagInput label="Allergies" value={form.allergies} onChange={set("allergies")} T={T} placeholder="e.g. Penicillin, Latex" />
+          <TextField label="Emergency contact name" value={form.emergencyContactName} onChange={set("emergencyContactName")} T={T} />
+          <TextField label="Emergency contact phone" value={form.emergencyContactPhone} onChange={set("emergencyContactPhone")} T={T} />
+          <TextAreaField label="Other emergency notes" value={form.emergencyNotes} onChange={set("emergencyNotes")} T={T} placeholder="e.g. blood type, relevant conditions" />
         </SectionCard>
       </div>
     </div>
@@ -558,6 +576,15 @@ function ProfileDataView({ profile, T }) {
       </SectionCard>
       <SectionCard title="About me" T={T}>
         <ReadRow label="Note" value={profile.aboutMeNotes} T={T} />
+      </SectionCard>
+      <SectionCard title="Clinical & emergency info (never shared)" T={T}>
+        <ReadRow label="Allergies" value={profile.allergies} T={T} />
+        <ReadRow label="Emergency contact name" value={profile.emergencyContactName} T={T} />
+        <ReadRow label="Emergency contact phone" value={profile.emergencyContactPhone} T={T} />
+        <ReadRow label="Other emergency notes" value={profile.emergencyNotes} T={T} />
+        {profile.allergies.length === 0 && !profile.emergencyContactName && !profile.emergencyContactPhone && !profile.emergencyNotes && (
+          <div style={{ fontSize: 12, color: T.textDisabled, fontStyle: "italic", padding: "2px 0 6px" }}>Nothing recorded yet — shown on your Clinic Card only, never shared.</div>
+        )}
       </SectionCard>
     </div>
   );

@@ -3,9 +3,13 @@ import { Plus, AlertTriangle, Check, RefreshCcw, Pill, Search, Settings as Setti
 // The dashboard no longer owns its own medication/log data — it reads and
 // writes through these two repositories instead. Nothing about how the UI
 // looks or behaves changes; this just moves WHERE the facts actually live.
-import { MedicationRepository, ROUTE_OPTIONS } from "../repositories/medicationRepository";
+import { MedicationRepository, ROUTE_OPTIONS, DOSE_UNIT_OPTIONS, MEDICATION_TYPE_OPTIONS } from "../repositories/medicationRepository";
 import { LogRepository } from "../repositories/logRepository";
 import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut, lockoutEndsEstimate } from "../calculations/medicationCalculations";
+// ADDED 19 Aug 2026 — real ask: allergies visible "± medications at
+// the top" too, not just on Clinic Card. Read-only here — Allergies
+// itself is edited on My Profile, this is just a visibility surface.
+import { MyProfileRepository } from "../repositories/myProfileRepository";
 
 const LIGHT = {
   // bg deepened from #FAFAFA — at that value it was nearly indistinguishable from surface (#FFFFFF),
@@ -136,11 +140,25 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
   // doesn't exist on a touchscreen. Kane's ask: keep it tappable while
   // locked, show a brief message instead of nothing, no confirmation
   // needed. This local flash state does exactly that.
+  // CHANGED 19 Aug 2026 — real ask: allow overriding the lockout if the
+  // person genuinely wants to log anyway ("accepts the risk"). Kept as
+  // a lightweight tap-again-to-confirm rather than a heavier modal —
+  // matches the app's existing "tap to confirm" pattern elsewhere.
+  // First tap while locked shows the flash with an explicit "tap again"
+  // instruction; a second tap WHILE that flash is showing logs the dose
+  // for real. The flash auto-clearing after a few seconds means an
+  // accidental double-tap days apart can't accidentally trigger this —
+  // only a genuine second tap within the window counts.
   const [lockFlash, setLockFlash] = useState(false);
   const handleLogTap = () => {
     if (doseLocked) {
+      if (lockFlash) {
+        setLockFlash(false);
+        onLogDose(med.id);
+        return;
+      }
       setLockFlash(true);
-      setTimeout(() => setLockFlash(false), 1800);
+      setTimeout(() => setLockFlash(false), 3000);
       return;
     }
     onLogDose(med.id);
@@ -259,8 +277,8 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
         </button>
         {stock.tracked && <button onClick={() => onLogRefill(med.id)} style={btnStyle(T.medsBlue, "filled")}><RefreshCcw size={14} /> Log refill</button>}
         {lockFlash && (
-          <div style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 6, padding: "6px 10px", background: T.textPrimary, color: T.bg, fontSize: 11, fontWeight: 600, borderRadius: radius.sm, textAlign: "center" }}>
-            Locked until {lockoutEndsEstimate(med, lastDose?.date)}
+          <div onClick={handleLogTap} style={{ position: "absolute", bottom: "100%", left: 0, right: 0, marginBottom: 6, padding: "6px 10px", background: T.textPrimary, color: T.bg, fontSize: 11, fontWeight: 600, borderRadius: radius.sm, textAlign: "center", cursor: "pointer" }}>
+            Locked until {lockoutEndsEstimate(med, lastDose?.date)} — tap again to log anyway
           </div>
         )}
       </div>
@@ -279,7 +297,7 @@ function QuantitySheet({ med, mode, onConfirm, onClose, T }) {
   const finalUnits = isRefill && unitMode === "container" ? amount * med.unitsPerContainer : amount;
   const step = (dir) => setAmount((a) => Math.max(1, a + dir));
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 50 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
       <div style={{ background: T.surface, width: "100%", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 16, color: T.textPrimary }}>{isRefill ? "Log refill" : "Log waste/lost"} — {med.name}</span>
@@ -321,7 +339,7 @@ function CorrectionSheet({ med, entry, onSave, onVoid, onClose, T }) {
   const step = (dir) => setAmount((a) => Math.max(1, a + dir));
   const typeLabel = entry.type === "dose" ? "Dose taken" : entry.type === "refill" ? "Refill" : "Waste/lost";
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 50 }} onClick={onClose}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
       <div style={{ background: T.surface, width: "100%", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 20 }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 16, color: T.textPrimary }}>Edit entry — {med.name}</span>
@@ -530,9 +548,31 @@ function SelectRow({ label, value, onChange, options, T }) {
   );
 }
 
+// ADDED 19 Aug 2026 — real fix, Kane's ask: dose strength used to be
+// one free-text field ("245mg", easy to typo the unit). Number + a
+// real dropdown (see DOSE_UNIT_OPTIONS) instead — µg renders correctly
+// now too, not the "ug" approximation free text tended toward.
+function DoseStrengthField({ value, unit, onChangeValue, onChangeUnit, T }) {
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 13, color: T.textPrimary, marginBottom: 6 }}>Dose strength</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={value} onChange={(e) => onChangeValue(e.target.value)} placeholder="e.g. 245" inputMode="decimal"
+          style={{ flex: 1, padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
+        <select value={unit} onChange={(e) => onChangeUnit(e.target.value)}
+          style={{ width: 90, padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }}>
+          <option value="">—</option>
+          {DOSE_UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function MedicationEditSheet({ med, onSave, onClose, T }) {
   const [form, setForm] = useState({
-    name: med.name, dosePerUnit: med.dosePerUnit || "", route: med.route || "",
+    name: med.name, route: med.route || "", medicationType: med.medicationType || "",
+    doseStrengthValue: med.doseStrengthValue || "", doseStrengthUnit: med.doseStrengthUnit || "",
     usagePattern: med.usagePattern,
     dosesPerDay: med.dosesPerDay || 1, unitsPerDose: med.unitsPerDose, refillThreshold: med.refillThreshold,
     unitsPerContainer: med.unitsPerContainer || 0,
@@ -547,14 +587,22 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
     onSave({ ...rest, defaultRefillQuantity: defaultRefillContainers * (form.unitsPerContainer || 0) });
   };
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 50 }} onClick={onClose}>
-      <div style={{ background: T.surface, width: "100%", maxHeight: "85vh", overflowY: "auto", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 20 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
+      {/* CHANGED 19 Aug 2026 — same fix Contacts got: Save was buried at
+          the end of scrollable content, so once the sheet grew past one
+          screenful (Route/Dose/Reason fields added it further this
+          session) Save could scroll out of view entirely rather than
+          just be covered. Restructured into header / scrollable middle /
+          sticky bottom action bar, matching Contacts' ContactEditSheet
+          exactly — same full-width, accent-colored, large button. */}
+      <div style={{ background: T.surface, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 20px 4px", flexShrink: 0 }}>
           <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 16, color: T.textPrimary }}>Edit medication</span>
           <X size={18} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onClose} />
         </div>
-        <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 12 }}>Changes how stock/adherence are calculated going forward — doesn't touch past log entries.</div>
+        <div style={{ fontSize: 12, color: T.textSecondary, padding: "0 20px 12px", flexShrink: 0 }}>Changes how stock/adherence are calculated going forward — doesn't touch past log entries.</div>
 
+        <div style={{ overflowY: "auto", padding: "0 20px", flex: 1 }}>
         <div style={{ padding: "6px 0 10px" }}>
           <input value={form.name} onChange={(e) => set("name")(e.target.value)}
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, fontWeight: 600, boxSizing: "border-box" }} />
@@ -562,10 +610,8 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
 
         {/* REORDERED 19 Aug 2026 — same reasoning as Add medication:
             identity facts before dosing mechanics. */}
-        <div style={{ padding: "6px 0 10px" }}>
-          <input value={form.dosePerUnit} onChange={(e) => set("dosePerUnit")(e.target.value)} placeholder="Dose per unit, e.g. 245mg"
-            style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
-        </div>
+        <SelectRow T={T} label="Medication type" value={form.medicationType} onChange={set("medicationType")} options={MEDICATION_TYPE_OPTIONS} />
+        <DoseStrengthField T={T} value={form.doseStrengthValue} unit={form.doseStrengthUnit} onChangeValue={set("doseStrengthValue")} onChangeUnit={set("doseStrengthUnit")} />
         <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={ROUTE_OPTIONS} />
 
         <div style={{ display: "flex", background: T.surfaceVariant, borderRadius: radius.full, padding: 3, marginBottom: 12 }}>
@@ -595,8 +641,11 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
           <input value={form.usualSupplier} onChange={(e) => set("usualSupplier")(e.target.value)} placeholder="e.g. Boots Pharmacy"
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
         </div>
+        </div>
 
-        <button onClick={save} style={{ ...btnStyle(T.medsBlue, "filled"), width: "100%", padding: 12, marginTop: 12 }}>Save changes</button>
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <button onClick={save} style={{ ...btnStyle(T.medsBlue, "filled"), width: "100%", padding: 16, fontSize: 16, fontWeight: 700 }}>Save changes</button>
+        </div>
       </div>
     </div>
   );
@@ -607,7 +656,7 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
 // but there's no schedule-builder UI yet, so it's not offered here rather than half-supported. ──
 function AddMedicationSheet({ onCreate, onClose, T }) {
   const [form, setForm] = useState({
-    name: "", dosePerUnit: "", route: "",
+    name: "", route: "", medicationType: "", doseStrengthValue: "", doseStrengthUnit: "",
     usagePattern: "daily", unitsPerDose: 1, dosesPerDay: 1,
     inventoryTracked: true, unitsPerContainer: 30, refillThreshold: 7, defaultRefillContainers: 1, usualSupplier: "",
   });
@@ -619,27 +668,27 @@ function AddMedicationSheet({ onCreate, onClose, T }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 50 }} onClick={onClose}>
-      <div style={{ background: T.surface, width: "100%", maxHeight: "85vh", overflowY: "auto", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 20 }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "flex-end", zIndex: 200 }} onClick={onClose}>
+      {/* CHANGED 19 Aug 2026 — same sticky-bottom-bar restructure as
+          MedicationEditSheet/Contacts' ContactEditSheet — see that
+          sheet's comment for the full reasoning. */}
+      <div style={{ background: T.surface, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 20px 4px", flexShrink: 0 }}>
           <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 16, color: T.textPrimary }}>Add medication</span>
           <X size={18} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={onClose} />
         </div>
 
+        <div style={{ overflowY: "auto", padding: "0 20px", flex: 1 }}>
         <div style={{ padding: "6px 0 10px" }}>
           <input value={form.name} onChange={(e) => set("name")(e.target.value)} placeholder="Medication name" autoFocus
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
         </div>
 
-        {/* REORDERED 19 Aug 2026 — Dose per unit/Route moved up here,
-            right after the name: they're identity facts about WHAT the
-            medication is and HOW it's taken, which reads more naturally
-            before the dosing-pattern/inventory mechanics below, not
-            buried after them. */}
-        <div style={{ padding: "6px 0 10px" }}>
-          <input value={form.dosePerUnit} onChange={(e) => set("dosePerUnit")(e.target.value)} placeholder="Dose per unit, e.g. 245mg"
-            style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
-        </div>
+        {/* REORDERED 19 Aug 2026 — identity facts right after the name:
+            what it is, how strong, how taken — before the dosing-
+            pattern/inventory mechanics below. */}
+        <SelectRow T={T} label="Medication type" value={form.medicationType} onChange={set("medicationType")} options={MEDICATION_TYPE_OPTIONS} />
+        <DoseStrengthField T={T} value={form.doseStrengthValue} unit={form.doseStrengthUnit} onChangeValue={set("doseStrengthValue")} onChangeUnit={set("doseStrengthUnit")} />
         <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={ROUTE_OPTIONS} />
 
         <div style={{ display: "flex", background: T.surfaceVariant, borderRadius: radius.full, padding: 3, marginBottom: 12 }}>
@@ -666,10 +715,13 @@ function AddMedicationSheet({ onCreate, onClose, T }) {
           <input value={form.usualSupplier} onChange={(e) => set("usualSupplier")(e.target.value)} placeholder="e.g. Boots Pharmacy"
             style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
         </div>
+        </div>
 
-        <button onClick={() => canCreate && create()} style={{ ...btnStyle(canCreate ? T.medsBlue : T.textDisabled, "filled"), width: "100%", padding: 12, marginTop: 8, cursor: canCreate ? "pointer" : "default" }}>
-          Add medication
-        </button>
+        <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <button onClick={() => canCreate && create()} style={{ ...btnStyle(canCreate ? T.medsBlue : T.textDisabled, "filled"), width: "100%", padding: 16, fontSize: 16, fontWeight: 700, cursor: canCreate ? "pointer" : "default" }}>
+            Add medication
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -677,7 +729,7 @@ function AddMedicationSheet({ onCreate, onClose, T }) {
 
 function DoseReminderBanner({ med, onTake, onSnooze, onSkip, T }) {
   return (
-    <div style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 358, background: T.surface, border: `1px solid ${T.border}`, borderRadius: radius.md, boxShadow: "0 8px 24px rgba(0,0,0,.18)", padding: 16, zIndex: 60 }}>
+    <div style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 358, background: T.surface, border: `1px solid ${T.border}`, borderRadius: radius.md, boxShadow: "0 8px 24px rgba(0,0,0,.18)", padding: 16, zIndex: 220 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <Pill size={16} color={T.medsBlue} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 14, color: T.textPrimary }}>Time for {med.name}</span>
@@ -694,6 +746,11 @@ function DoseReminderBanner({ med, onTake, onSnooze, onSkip, T }) {
 
 export default function MedicationDashboard({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [meds, setMeds] = useState(() => loadMedications());
+  // ADDED 19 Aug 2026 — read once on mount, same pattern as every other
+  // module's read-only cross-repository reference (e.g. Contacts'
+  // Timeline reading EncounterRepository). Allergies is edited on My
+  // Profile, not here.
+  const allergies = useMemo(() => MyProfileRepository.getProfile().allergies, []);
   // Called after every write to either repository — re-reads both and
   // rebuilds the merged view so the screen reflects what's now actually
   // stored, the same way setMeds always used to trigger a re-render.
@@ -727,10 +784,25 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
   const cardRefs = useRef({});
 
   const flashComplete = (id, type = "logged") => { setJustCompleted({ id, type }); setTimeout(() => setJustCompleted(null), 2000); };
+  // ADDED 19 Aug 2026 — real ask: an immediate "undo" right after
+  // logging, for the accidental-tap case specifically — separate from
+  // the standalone Correction/Void flow (still there for anything
+  // spotted later). Tracks the single most-recently-logged entry only;
+  // tapping a DIFFERENT medication's log button clears this, so undo
+  // only ever targets the actual last action, never something stale.
+  const [lastLoggedEntry, setLastLoggedEntry] = useState(null);
+  const undoLastLog = () => {
+    if (!lastLoggedEntry) return;
+    LogRepository.void(lastLoggedEntry.id);
+    setLastLoggedEntry(null);
+    refreshMeds();
+  };
   const logDose = (id) => {
     const med = MedicationRepository.getById(id);
     if (!med) return;
-    LogRepository.create({ medicationId: id, type: "dose", delta: -med.unitsPerDose, date: new Date().toISOString() });
+    const entry = LogRepository.create({ medicationId: id, type: "dose", delta: -med.unitsPerDose, date: new Date().toISOString() });
+    setLastLoggedEntry(entry);
+    setTimeout(() => setLastLoggedEntry((current) => (current?.id === entry.id ? null : current)), 8000);
     refreshMeds();
   };
 
@@ -826,7 +898,16 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
   // display order. The list just showed creation order regardless of
   // how many times Move up/down was clicked. Sorting by sortOrder here
   // is the actual fix — reorder() itself was already correct.
-  const activeMeds = useMemo(() => meds.filter((m) => !m.archived).sort((a, b) => a.sortOrder - b.sortOrder), [meds]);
+  // CHANGED 19 Aug 2026 — Kane's ask: Daily-pattern meds should always
+  // list before PRN, with manual reordering still respected WITHIN each
+  // group rather than overriding it entirely. "custom" (rarely used)
+  // placed between the two — reasonable default, not explicitly
+  // specified by Kane, flagged here rather than silently assumed.
+  const PATTERN_ORDER = { daily: 0, custom: 1, prn: 2 };
+  const activeMeds = useMemo(() => meds.filter((m) => !m.archived).sort((a, b) => {
+    const patternDiff = (PATTERN_ORDER[a.usagePattern] ?? 1) - (PATTERN_ORDER[b.usagePattern] ?? 1);
+    return patternDiff !== 0 ? patternDiff : a.sortOrder - b.sortOrder;
+  }), [meds]);
   const archivedMeds = useMemo(() => meds.filter((m) => m.archived), [meds]);
   const needsActionMeds = useMemo(() => activeMeds.filter((m) => { const s = computeStock(m); return s.tracked && s.needsAction && !m.refillRequestedAt; }), [activeMeds]);
 
@@ -882,6 +963,30 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
             <SettingsIcon size={20} color={T.textSecondary} />
           </div>
         </div>
+
+        {/* ADDED 19 Aug 2026 — real ask: allergies visible here too, not
+            just on Clinic Card, since it's directly relevant while
+            adding/reviewing medications. Read-only banner — editing
+            still happens on My Profile, this is a visibility surface
+            only, and stays silent entirely when nothing's recorded
+            rather than showing an empty/permanent row. */}
+        {allergies.length > 0 && (
+          <div style={{ margin: "0 16px 12px", padding: "10px 14px", borderRadius: radius.md, background: `${T.actionRed}14`, border: `1px solid ${T.actionRed}40`, display: "flex", alignItems: "center", gap: 8 }}>
+            <AlertTriangle size={15} color={T.actionRed} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: T.actionRed, fontWeight: 600 }}>Allergies: {allergies.join(", ")}</span>
+          </div>
+        )}
+
+        {/* ADDED 19 Aug 2026 — real ask: an immediate way to undo the
+            most recent dose log, specifically for the accidental-tap
+            case. See logDose() above for how lastLoggedEntry is tracked
+            and cleared. */}
+        {lastLoggedEntry && (
+          <div onClick={undoLastLog}
+            style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 358, background: T.textPrimary, color: T.bg, borderRadius: radius.full, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Check size={14} /> Dose logged — tap to undo
+          </div>
+        )}
 
         <div onClick={() => setDueReminder(meds.find((m) => m.usagePattern !== "prn"))} style={{ margin: "0 16px 12px", fontSize: 11, color: T.textDisabled, cursor: "pointer", textAlign: "center", border: `1px dashed ${T.border}`, borderRadius: radius.sm, padding: 6 }}>
           Demo: simulate a due-dose notification

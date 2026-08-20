@@ -6,6 +6,13 @@ import {
 } from "../repositories/testingRepository";
 import { OrganismRegistry } from "../registries/organismRegistry";
 import { ResultsRegistry } from "../registries/resultsRegistry";
+// ADDED 19 Aug 2026 — real gap found in an orphaned-code audit:
+// ClinicVisitsRepository.getByLinkedTest() was built specifically as
+// "the read side" of the two-way Testing↔Clinic Visits link, but this
+// module never actually called it — Clinic Visits' own detail view
+// shows its linked tests, Testing's never showed its linked visits.
+// One real direction of a two-way link with no UI at all.
+import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
 // ADDED 19 Aug 2026 — draft autosave, same pattern as every other
 // edit sheet this round. See draftStorage.js for the full reasoning.
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
@@ -252,7 +259,7 @@ function TestEditSheet({ testId, onClose, onSaved, T }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 50, overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 200, overflowY: "auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px", position: "sticky", top: 0, background: T.bg, borderBottom: `1px solid ${T.border}`, zIndex: 1 }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onClose} />
         <span style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary }}>{isNew ? "New test" : "Edit test"}</span>
@@ -314,6 +321,9 @@ function TestDetail({ testId, onBack, onEdit, T }) {
   const organismNames = test.organismIds.map((id) => OrganismRegistry.getById(id)?.name).filter(Boolean);
   const resultNames = test.resultIds.map((id) => ResultsRegistry.getById(id)?.name).filter(Boolean);
   const isPositive = resultNames.some((r) => r.toLowerCase() === "positive");
+  // ADDED 19 Aug 2026 — real data, previously built but never
+  // displayed. See the import comment above for the full reasoning.
+  const linkedVisits = ClinicVisitsRepository.getByLinkedTest(testId);
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
@@ -353,6 +363,24 @@ function TestDetail({ testId, onBack, onEdit, T }) {
                 <Paperclip size={13} color={T.textSecondary} />
                 <span style={{ fontSize: 13, color: T.textPrimary }}>{a.title}</span>
                 <span style={{ fontSize: 11, color: T.textDisabled }}>({a.type})</span>
+              </div>
+            ))}
+          </SectionCard>
+        )}
+
+        {/* ADDED 19 Aug 2026 — same known, honest scope limit already
+            stated elsewhere in the app (Clinic Visits' own linked-test
+            row): this switches to the Clinic Visits sub-tab's list, not
+            a true deep-link to that one visit's detail screen — full
+            cross-module "open this specific record" plumbing doesn't
+            exist yet anywhere in the app. Real and useful stop short of
+            that, not a silent downgrade. */}
+        {linkedVisits.length > 0 && (
+          <SectionCard title="Linked clinic visits" T={T}>
+            {linkedVisits.map((v) => (
+              <div key={v.id} style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 13, color: T.textPrimary, fontWeight: 600 }}>{v.title || (v.reasonForVisit || []).join("/") || "Clinic visit"}</div>
+                <div style={{ fontSize: 11, color: T.textSecondary }}>{formatDate(v.date)}</div>
               </div>
             ))}
           </SectionCard>

@@ -57,6 +57,38 @@ export function normalizeTag(raw) {
     .join(" ");
 }
 
+// ADDED 19 Aug 2026 — real gap from the ~90-item StackBlitz batch: typing
+// "fisting top, piss bottom" into Stated Kinks/Limits should extract the
+// role (Top/Bottom/Vers) AND still split on the comma into two separate
+// kink entries — previously the role had to be set afterwards via the
+// tap-to-cycle badge, and the whole phrase (including the role word)
+// would get resolved as one literal kink name.
+//
+// Deliberately conservative: only checks the FIRST and LAST word of each
+// comma-separated phrase against the known role vocabulary (case-
+// insensitive exact word match), trailing word checked first since
+// "fisting top" reads more naturally than "top fisting". A role word
+// appearing in the middle of a kink name (unlikely, but possible) is left
+// alone rather than guessed at. Returns the role untouched (matching
+// roleOptions' own casing, e.g. "Top") and the remaining text with the
+// role word removed, ready for normalizeTag/resolveSynonym as before.
+export function extractKinkRoleFromText(raw, roleOptions = []) {
+  const trimmed = raw.trim().replace(/\s+/g, " ");
+  if (!trimmed || roleOptions.length === 0) return { text: trimmed, role: null };
+  const words = trimmed.split(" ");
+  if (words.length < 2) return { text: trimmed, role: null };
+
+  const matchRole = (word) => roleOptions.find((r) => r.toLowerCase() === word.toLowerCase()) || null;
+
+  const lastRole = matchRole(words[words.length - 1]);
+  if (lastRole) return { text: words.slice(0, -1).join(" "), role: lastRole };
+
+  const firstRole = matchRole(words[0]);
+  if (firstRole) return { text: words.slice(1).join(" "), role: firstRole };
+
+  return { text: trimmed, role: null };
+}
+
 // REINTRODUCED 17 Aug 2026 (Kane): the stored `contactableVia` array on a
 // contact now holds only the EXTRA platforms that don't have their own
 // dedicated field (Tinder, Bumble, Grindr, etc.) — typed in manually.

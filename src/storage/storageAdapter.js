@@ -41,4 +41,25 @@ export const localStorageAdapter = {
       return false;
     }
   },
+
+  // ADDED 19 Aug 2026 — Settings' Developer Tools "Reset all data"
+  // needs a real way to wipe everything, which nothing in this file
+  // offered before now (only load/save existed). Every repository/
+  // registry in this app uses a "shos_" prefixed key (shos_contacts,
+  // shos_kink_registry, etc.) and every draft autosave key is
+  // "shos_draft_"-prefixed (see draftStorage.js) — both already fall
+  // under the same "shos_" prefix, so a single prefix-scan finds
+  // everything this app has ever written without needing a hardcoded
+  // key list that would silently go stale every time a new module is
+  // added. Deliberately does NOT touch any non-"shos_" key that might
+  // exist in the same browser storage for an unrelated site/app.
+  clearAllAppData() {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("shos_")) keysToRemove.push(key);
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+    return keysToRemove;
+  },
 };

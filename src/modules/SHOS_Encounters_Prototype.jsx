@@ -163,11 +163,11 @@ function GivingReceivingChips({ label, value, onChange, options, T }) {
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>{label}</div>
       <div style={{ display: "flex", gap: 14 }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDisabled, textTransform: "uppercase", letterSpacing: 0.5 }}>Giving</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDisabled, textTransform: "uppercase", letterSpacing: 0.5 }}>Giving/Top</div>
           {giving.map((act) => <Chip key={act} act={act} fullValue={`${act} - giving`} />)}
         </div>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDisabled, textTransform: "uppercase", letterSpacing: 0.5 }}>Receiving</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDisabled, textTransform: "uppercase", letterSpacing: 0.5 }}>Receiving/Bottom</div>
           {receiving.map((act) => <Chip key={act} act={act} fullValue={`${act} - receiving`} />)}
         </div>
       </div>
@@ -468,7 +468,10 @@ function ActivityLanding({ T, onOpenEncounter, onAdd }) {
           <EncounterCard key={e.id} encounter={e} contacts={contacts} T={T} onClick={() => onOpenEncounter(e.id)} />
         ))}
       </div>
-      <div onClick={onAdd} style={{ position: "fixed", bottom: 24, right: 24, width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, color: T.fabIcon, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)" }}>
+      {/* CHANGED 19 Aug 2026 — same fix as Contacts' Add button: now
+          clears the nav bar (was sitting within its height) and
+          matches Contacts' exact position so both align vertically. */}
+      <div onClick={onAdd} style={{ position: "fixed", bottom: 90, right: 20, width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, color: T.fabIcon, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)", zIndex: 20 }}>
         <Plus size={26} />
       </div>
     </div>
@@ -611,7 +614,7 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 20, overflowY: "auto" }} data-encounter-sheet>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 200, overflowY: "auto" }} data-encounter-sheet>
       <div style={{ position: "sticky", top: 0, background: T.bg, padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
         <X size={22} style={{ cursor: "pointer" }} onClick={onClose} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 16 }}>{isNew ? "Add Activity" : "Edit Activity"}</span>
@@ -622,12 +625,18 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
       </div>
 
       {draftRestored && (
-        <div style={{ margin: "10px 16px 0", fontSize: 11, color: T.actionGreen, background: `${T.actionGreen}15`, borderRadius: radius.sm, padding: "6px 10px" }}>
-          Restored unsaved changes from earlier.
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "10px 16px 0", fontSize: 11, color: T.actionGreen, background: `${T.actionGreen}15`, borderRadius: radius.sm, padding: "6px 10px" }}>
+          <span>Restored unsaved changes from earlier.</span>
+          {/* ADDED 19 Aug 2026 — same "discard and start clean" option
+              Contacts got, same reasoning. */}
+          <span onClick={() => { clearDraft(draftKey); setForm(isNew ? { ...DEFAULT_ENCOUNTER } : EncounterRepository.getById(encounterId)); }}
+            style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline", flexShrink: 0 }}>
+            Clear & start fresh
+          </span>
         </div>
       )}
 
-      <div style={{ padding: "0 16px 40px" }}>
+      <div style={{ padding: "0 16px 60px" }}>
         <SectionCard title="Overview" T={T}>
           <TextField label="Title" value={form.title} onChange={set("title")} T={T} placeholder="e.g. Alex — coffee then back to his" />
           <DateTimeField label="Date & time" value={form.date} onChange={set("date")} T={T} />

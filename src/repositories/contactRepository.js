@@ -91,10 +91,14 @@ export const CHASTITY_OPTIONS = ["N/A", "Uncaged", "Caged"];
 // sharing the same value/onChange, so toggling any option in any group
 // correctly adds/removes just that one value from the shared array —
 // no new component or data shape needed for this.
-export const CUMMER_FREQUENCY_OPTIONS = ["Doesn't", "Premature", "Takes ages", "Only once"];
-export const CUMMER_VOLUME_OPTIONS = ["Big load", "Multiple loads"];
+// CHANGED 19 Aug 2026 — real gap from the ~90-item StackBlitz batch:
+// "Multiple loads" is about HOW OFTEN he cums in one session, not how
+// much — moved from Volume to Frequency. Small/Average added to Volume,
+// which previously only had "Big load" (no way to record anything less).
+export const CUMMER_FREQUENCY_OPTIONS = ["Doesn't", "Premature", "Takes ages", "Only once", "Multiple loads"];
+export const CUMMER_VOLUME_OPTIONS = ["Small", "Average", "Big load"];
 export const CUMMER_STYLE_OPTIONS = ["Squirter", "Dribbler"];
-export const CUMMER_OPTIONS = ["Doesn't", "Premature", "Takes ages", "Only once", "Multiple loads", "Big load", "Squirter", "Dribbler"];
+export const CUMMER_OPTIONS = ["Doesn't", "Premature", "Takes ages", "Only once", "Multiple loads", "Small", "Average", "Big load", "Squirter", "Dribbler"];
 
 // New this round: known PrEP/DoxyPEP status, and the day/time rule
 // builder for non-availability (and its inverse, availability) windows.
