@@ -175,7 +175,11 @@ function generateMedicationId() {
 // the specific IM/SubQ routes, per Kane's ask — covers "yes it's
 // injected" without committing to a specific site when that's not
 // meaningful to record.
-export const ROUTE_OPTIONS = ["Oral", "IM - Gluteal", "IM - Deltoid", "SubQ", "Injection"];
+// CHANGED 19 Aug 2026 — ROUTE_OPTIONS and MEDICATION_TYPE_OPTIONS moved
+// into customOptionListsRepository.js (real, in-app editable, per
+// Kane's "idiot-proof editor" ask). These two static exports removed
+// to avoid two sources of truth drifting apart — the module now reads
+// live from CustomOptionListsRepository.get() instead.
 // ADDED 19 Aug 2026 — real gap from Kane's testing: dose strength
 // (e.g. "245mg") was one free-text field, easy to typo the unit and
 // impossible to display the correct µ symbol consistently. Split into
@@ -188,11 +192,19 @@ export const DOSE_UNIT_OPTIONS = ["ng", "µg", "mg", "g"];
 // display/icon purposes, and doesn't drive any calculation the way
 // `unit` does — kept separate rather than overloading one field with
 // two different jobs.
-export const MEDICATION_TYPE_OPTIONS = ["Pill/Tablet", "Capsule", "Injection", "Cream/Gel", "Patch", "Liquid", "Other"];
+// (MEDICATION_TYPE_OPTIONS also moved — see comment above ROUTE_OPTIONS' old location.)
 
 const DEFAULT_MEDICATION = {
   name: "", unit: "", usagePattern: "daily",
   dosesPerDay: null, unitsPerDose: 1,
+  // ADDED 19 Aug 2026 — real custom-scheduling support: "every N days".
+  // Only meaningful when usagePattern === "custom" — see
+  // medicationCalculations.js's effectiveDoseIntervalHours() for how
+  // this actually drives lockout/next-dose/adherence math. Deliberately
+  // scoped to interval-only (not day-of-week) — that's what was asked
+  // for and what the app's real usage needs, not a speculative bigger
+  // scheduler.
+  scheduleIntervalDays: null,
   inventoryTracked: true, unitsPerContainer: 0,
   refillThreshold: 0, defaultRefillQuantity: 0,
   usualSupplier: "", refillRequestedAt: null,
@@ -205,6 +217,14 @@ const DEFAULT_MEDICATION = {
   // restructuring, so replacing it outright rather than keeping the
   // old shape around for compatibility it never really needed.
   doseStrengthValue: "", doseStrengthUnit: "",
+  // ADDED 19 Aug 2026 — real gap: Medicines Registry's own Category
+  // field, fetched live from Notion this session, never ported until
+  // now. Multi-select, matching Notion (a medication can genuinely be
+  // more than one category — e.g. an antidepressant used off-label for
+  // IBS). Real options live in customOptionListsRepository.js
+  // ("medicationCategory"), not hardcoded here — same pattern as every
+  // other simple categorical field converted this session.
+  category: [],
 };
 
 export const MedicationRepository = {
@@ -226,26 +246,25 @@ export const MedicationRepository = {
   // Creates a new medication. Fills in the id, isArchived, and sortOrder
   // automatically — the caller only supplies the fields a person actually
   // types in on the Add Medication screen.
+  // CHANGED 19 Aug 2026 — real bug found and fixed: this listed every
+  // field explicitly instead of spreading DEFAULT_MEDICATION, which
+  // meant `category` (just added) AND `scheduleIntervalDays` (added
+  // earlier this session, for custom scheduling) were BOTH being
+  // silently dropped on every new medication — a real, live data-loss
+  // bug, not caught until a real functional test against the actual
+  // create() call surfaced it. Converted to the same
+  // `{...DEFAULT_MEDICATION, ...data}` spread pattern every other
+  // repository already uses, which also means any FUTURE field added
+  // to DEFAULT_MEDICATION is automatically included here — this exact
+  // bug class can't recur.
   create(data) {
     const newMedication = {
+      ...DEFAULT_MEDICATION,
+      ...data,
       id: generateMedicationId(),
-      name: data.name,
-      unit: data.unit,
-      usagePattern: data.usagePattern,
-      dosesPerDay: data.dosesPerDay ?? null,
-      unitsPerDose: data.unitsPerDose,
-      inventoryTracked: data.inventoryTracked,
-      unitsPerContainer: data.unitsPerContainer ?? 0,
-      refillThreshold: data.refillThreshold ?? 0,
-      defaultRefillQuantity: data.defaultRefillQuantity ?? 0,
-      usualSupplier: data.usualSupplier ?? "",
       refillRequestedAt: null,
       isArchived: false,
       sortOrder: medications.length,
-      route: data.route ?? "",
-      medicationType: data.medicationType ?? "",
-      doseStrengthValue: data.doseStrengthValue ?? "",
-      doseStrengthUnit: data.doseStrengthUnit ?? "",
     };
     medications = [...medications, newMedication];
     persist();

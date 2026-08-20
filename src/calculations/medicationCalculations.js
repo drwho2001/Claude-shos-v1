@@ -43,7 +43,15 @@ export function computeStock(med) {
     const dosesRemaining = med.unitsPerDose > 0 ? Math.floor(currentStock / med.unitsPerDose) : null;
     supplementary = `${dosesRemaining} doses left · ${Math.ceil(currentStock / med.unitsPerContainer)} containers`;
   } else {
-    const dailyConsumption = med.unitsPerDose * med.dosesPerDay;
+    // CHANGED 19 Aug 2026 — generalized via effectiveDoseIntervalHours()
+    // so custom (every-N-days) scheduling gets a correct "days
+    // remaining" figure too, not just daily meds. For daily this is
+    // exactly the same math as before (unitsPerDose × dosesPerDay);
+    // for custom it correctly averages out to less-than-one dose's
+    // worth of consumption per day when the interval is more than a
+    // day.
+    const intervalHours = effectiveDoseIntervalHours(med);
+    const dailyConsumption = intervalHours ? (med.unitsPerDose * 24) / intervalHours : 0;
     const daysRemainingExact = dailyConsumption > 0 ? currentStock / dailyConsumption : null;
     supplementary = daysRemainingExact !== null ? formatRemaining(daysRemainingExact) : "—";
   }
@@ -52,16 +60,63 @@ export function computeStock(med) {
   return { tracked: true, currentStock, needsAction, supplementary, barPct };
 }
 
-// Small helper used only by computeAdherence below — how many of the last
-// N days had a logged dose.
-function windowStats(doseDays, days, today) {
+// Small helper used only by computeAdherence below — how many of the
+// last N days had a logged dose. `expectedDaysOverride`, when given,
+// restricts which days actually count as "expected" — used for
+// custom (every-N-days) scheduling below, where most calendar days
+// were never due in the first place and shouldn't count against
+// adherence at all.
+function windowStats(doseDays, days, today, expectedDaysOverride) {
   let expected = 0, hit = 0;
   for (let i = 0; i < days; i++) {
     const day = new Date(today); day.setDate(day.getDate() - i);
+    const dayTime = day.getTime();
+    if (expectedDaysOverride && !expectedDaysOverride.has(dayTime)) continue;
     expected += 1;
-    if (doseDays.has(day.getTime())) hit += 1;
+    if (doseDays.has(dayTime)) hit += 1;
   }
-  return { hit, expected, pct: Math.round((hit / expected) * 100) };
+  return { hit, expected, pct: expected > 0 ? Math.round((hit / expected) * 100) : 100 };
+}
+
+// ADDED 19 Aug 2026 — real feedback batch: custom "every N days"
+// scheduling, Kane's explicit scope call ("every n days for later meds
+// schedules that may realistically get added" — day-of-week
+// deliberately NOT built, wasn't asked for). This is the one new piece
+// of real logic every other function below builds on: for a
+// `usagePattern === "custom"` medication, which calendar days were
+// actually EXPECTED, based on `scheduleIntervalDays` and phased off
+// the very first dose ever logged (that dose sets which days of the
+// cycle the schedule actually falls on — e.g. logging the first dose
+// on a Tuesday for an every-3-days med means Tue/Fri/Mon/Thu... are
+// the expected days going forward, not an arbitrary fixed calendar
+// pattern). Returns null for non-custom meds — callers treat null as
+// "every day is expected", the original behavior, unchanged.
+function computeExpectedDoseDays(med, doseDays, windowDays, today) {
+  if (med.usagePattern !== "custom" || !med.scheduleIntervalDays) return null;
+  const sortedDoseDays = Array.from(doseDays).sort((a, b) => a - b);
+  const anchor = sortedDoseDays[0];
+  if (anchor == null) return new Set(); // no dose logged yet — nothing's been "due" so far
+  const intervalMs = med.scheduleIntervalDays * 86400000;
+  const expected = new Set();
+  for (let i = 0; i < windowDays; i++) {
+    const day = new Date(today); day.setDate(day.getDate() - i);
+    const diff = day.getTime() - anchor;
+    if (diff >= 0 && diff % intervalMs === 0) expected.add(day.getTime());
+  }
+  return expected;
+}
+
+// ADDED 19 Aug 2026 — shared by isDoseLockedOut/lockoutEndsEstimate/
+// nextDoseEstimate below: the real gap in hours between one dose and
+// the next, for whichever scheduling type a medication actually uses.
+// Daily: 24h split across dosesPerDay. Custom: scheduleIntervalDays
+// full days (one dose per dosing day — Kane's ask was "every N days",
+// not "N times a day, every M days" — the simpler, actually-requested
+// case). PRN and anything unrecognized: no fixed interval, null.
+export function effectiveDoseIntervalHours(med) {
+  if (med.usagePattern === "daily" && med.dosesPerDay) return 24 / med.dosesPerDay;
+  if (med.usagePattern === "custom" && med.scheduleIntervalDays) return med.scheduleIntervalDays * 24;
+  return null;
 }
 
 // PRN never gets adherence — there's no schedule to measure against, so
@@ -73,10 +128,27 @@ export function computeAdherence(med) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const doseDays = new Set(med.logs.filter((l) => l.type === "dose" && !l.voided).map((l) => { const d = new Date(l.date); d.setHours(0, 0, 0, 0); return d.getTime(); }));
 
+  // CHANGED 19 Aug 2026 — real custom-scheduling support: for an
+  // every-N-days medication, only the days actually due count toward
+  // streak/adherence at all — see computeExpectedDoseDays() above for
+  // the full reasoning. Daily meds are completely unaffected (every
+  // day was already "expected" before, still is).
   let streak = 0;
-  for (let i = 0; i < 365; i++) { const day = new Date(today); day.setDate(day.getDate() - i); if (doseDays.has(day.getTime())) streak += 1; else break; }
+  if (med.usagePattern === "custom" && med.scheduleIntervalDays) {
+    const sortedDoseDays = Array.from(doseDays).sort((a, b) => a - b);
+    const anchor = sortedDoseDays[0];
+    if (anchor != null) {
+      const intervalMs = med.scheduleIntervalDays * 86400000;
+      const stepsBack = Math.floor((today.getTime() - anchor) / intervalMs);
+      let cursor = anchor + stepsBack * intervalMs;
+      while (cursor >= anchor && doseDays.has(cursor)) { streak += 1; cursor -= intervalMs; }
+    }
+  } else {
+    for (let i = 0; i < 365; i++) { const day = new Date(today); day.setDate(day.getDate() - i); if (doseDays.has(day.getTime())) streak += 1; else break; }
+  }
 
-  const sevenDay = windowStats(doseDays, 7, today);
+  const expected7 = computeExpectedDoseDays(med, doseDays, 7, today);
+  const sevenDay = windowStats(doseDays, 7, today, expected7);
 
   const lastRefill = [...med.logs].filter((l) => l.type === "refill" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
   // CHANGED 18 Aug 2026 — real feedback: "since refill" used to span the
@@ -91,8 +163,14 @@ export function computeAdherence(med) {
   // today span — computed from unitsPerContainer/unitsPerDose/
   // dosesPerDay, the same fields already used for stock/refill math
   // elsewhere in this file, not a new concept.
-  const daysPerContainer = med.unitsPerContainer > 0 && med.dosesPerDay
-    ? Math.round(med.unitsPerContainer / (med.unitsPerDose * med.dosesPerDay))
+  // CHANGED 19 Aug 2026 — generalized via effectiveDoseIntervalHours()
+  // so custom (every-N-days) meds get a correct per-container cycle
+  // length too, not just daily ones — same reasoning as computeStock's
+  // own use of this helper above.
+  const intervalHoursForContainer = effectiveDoseIntervalHours(med);
+  const dailyConsumptionForContainer = intervalHoursForContainer ? (med.unitsPerDose * 24) / intervalHoursForContainer : 0;
+  const daysPerContainer = med.unitsPerContainer > 0 && dailyConsumptionForContainer > 0
+    ? Math.round(med.unitsPerContainer / dailyConsumptionForContainer)
     : null;
   let sinceRefill;
   if (lastRefill) {
@@ -101,7 +179,8 @@ export function computeAdherence(med) {
     const windowDays = daysPerContainer && daysPerContainer > 0
       ? Math.min(daysSince, ((daysSince - 1) % daysPerContainer) + 1)
       : daysSince;
-    sinceRefill = windowStats(doseDays, windowDays, today);
+    const expectedSinceRefill = computeExpectedDoseDays(med, doseDays, windowDays, today);
+    sinceRefill = windowStats(doseDays, windowDays, today, expectedSinceRefill);
   } else {
     sinceRefill = sevenDay;
   }
@@ -119,9 +198,12 @@ export function computeAdherence(med) {
 // measure against for PRN, and Custom Schedule doesn't have a UI to
 // build this against yet (Doc 5 §5 already flags Custom Schedule as
 // editable-later, not editable-now).
+// CHANGED 19 Aug 2026 — real custom-scheduling support, via the shared
+// effectiveDoseIntervalHours() helper above. PRN still never locks (no
+// fixed interval). Daily behavior is completely unchanged.
 export function isDoseLockedOut(med, lastDoseDate) {
-  if (!lastDoseDate || med.usagePattern !== "daily" || !med.dosesPerDay) return false;
-  const intervalHours = 24 / med.dosesPerDay;
+  const intervalHours = effectiveDoseIntervalHours(med);
+  if (!lastDoseDate || !intervalHours) return false;
   const hoursSinceLastDose = (Date.now() - new Date(lastDoseDate).getTime()) / 3600000;
   return hoursSinceLastDose < intervalHours * 0.8;
 }
@@ -136,8 +218,8 @@ export function isDoseLockedOut(med, lastDoseDate) {
 // DUE (100% of the interval) — lockout ends earlier, at 80%. Reusing
 // nextDoseEstimate's number here would tell Kane the wrong time.
 export function lockoutEndsEstimate(med, lastDoseDate) {
-  if (!lastDoseDate || med.usagePattern !== "daily" || !med.dosesPerDay) return null;
-  const intervalHours = 24 / med.dosesPerDay;
+  const intervalHours = effectiveDoseIntervalHours(med);
+  if (!lastDoseDate || !intervalHours) return null;
   const unlockAt = new Date(new Date(lastDoseDate).getTime() + intervalHours * 0.8 * 3600000);
   const hoursLeft = Math.round((unlockAt.getTime() - Date.now()) / 3600000);
   if (hoursLeft <= 0) return "now";
@@ -150,8 +232,8 @@ export function lockoutEndsEstimate(med, lastDoseDate) {
 // the medication's dosing frequency. Returns null for PRN (no schedule)
 // or when there's no last dose to count forward from yet.
 export function nextDoseEstimate(med, lastDoseDate) {
-  if (!lastDoseDate || med.usagePattern === "prn" || !med.dosesPerDay) return null;
-  const intervalHours = 24 / med.dosesPerDay;
+  const intervalHours = effectiveDoseIntervalHours(med);
+  if (!lastDoseDate || med.usagePattern === "prn" || !intervalHours) return null;
   const next = new Date(new Date(lastDoseDate).getTime() + intervalHours * 3600000);
   const hoursLeft = Math.round((next.getTime() - Date.now()) / 3600000);
   if (hoursLeft <= 0) return "due now";

@@ -19,9 +19,9 @@ import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_vaccinations";
 
-export const VACCINE_OPTIONS = ["Hepatitis A", "Hepatitis B", "HPV", "Mpox", "Gonorrhoea", "Other"];
-export const REASON_OPTIONS = ["Routine", "Occupational", "High-risk status", "Booster"];
-export const INJECTION_SITE_OPTIONS = ["Deltoid", "Gluteal", "Other"];
+// (VACCINE_OPTIONS/REASON_OPTIONS/INJECTION_SITE_OPTIONS moved to
+// customOptionListsRepository.js, real in-app editable, per Kane's
+// ask — stored there as "vaccine"/"vaccinationReason"/"injectionSite".)
 
 export const DEFAULT_VACCINATION = {
   title: "",

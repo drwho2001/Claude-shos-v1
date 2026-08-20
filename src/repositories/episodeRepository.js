@@ -49,7 +49,11 @@ import { localStorageAdapter as storage } from "../storage/storageAdapter.js";
 
 const STORAGE_KEY = "shos_episodes";
 
-export const TRIGGER_REASON_OPTIONS = ["Partner notification", "Symptom-driven", "Medication-driven", "Routine testing", "Other"];
+// (TRIGGER_REASON_OPTIONS moved to customOptionListsRepository.js,
+// real in-app editable, per Kane's ask — stored as
+// "episodeTriggerReason". RESOLUTION_OPTIONS stays fixed here — its
+// two values directly drive the resolve buttons' own logic, not a
+// candidate for open-ended editing.)
 export const RESOLUTION_OPTIONS = ["Negative — no treatment needed", "Treated — course complete"];
 
 export const DEFAULT_EPISODE = {

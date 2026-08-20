@@ -15,6 +15,10 @@
 // know backup/restore exists.
 
 import { ContactRepository } from "../repositories/contactRepository.js";
+// ADDED 19 Aug 2026 — needed directly (not through a repository) for
+// the backup-reminder timestamp, which isn't really "a module's data",
+// just app-usage tracking.
+import { localStorageAdapter as storage } from "./storageAdapter.js";
 import { MedicationRepository } from "../repositories/medicationRepository.js";
 import { LogRepository } from "../repositories/logRepository.js";
 import { EncounterRepository } from "../repositories/encounterRepository.js";
@@ -48,6 +52,14 @@ import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository.j
 import { SymptomLogRepository } from "../repositories/symptomLogRepository.js";
 import { VaccinationRepository } from "../repositories/vaccinationRepository.js";
 import { EpisodeRepository } from "../repositories/episodeRepository.js";
+import { CustomOptionListsRepository } from "../repositories/customOptionListsRepository.js";
+// ADDED 19 Aug 2026 — real gap found: PrivacySettingsRepository (PIN,
+// Anonymise mode, hide-further preference) was never wired into backup
+// at all. A real data-loss risk on restore/device-migration — Kane's
+// PIN and preference would silently vanish, not just be reset to
+// default. Fixed by adding it here, same pattern as every other
+// repository.
+import { PrivacySettingsRepository } from "../repositories/privacySettingsRepository.js";
 
 // Doc 5 §8: "Every export/backup file stamps: schema version, migration
 // version, app version." Schema version bumps only when a backup file's
@@ -94,6 +106,16 @@ export const EXPORT_GROUPS = [
     { dataKey: "locations", label: "Locations" },
   ] },
   { key: "profile", label: "My Profile", items: [{ dataKey: "myProfile", label: "My Profile" }] },
+  // ADDED 19 Aug 2026 — real fix: customOptionLists had been sitting
+  // under "Healthcare" by mistake — it spans every domain (Medication
+  // type, Route, Reason for visit, etc.), not just Healthcare. Moved
+  // here into its own real group alongside Privacy Settings, which was
+  // simply never wired into backup at all until now (see the import
+  // comment above for the full reasoning).
+  { key: "appSettings", label: "App settings", items: [
+    { dataKey: "customOptionLists", label: "Custom option lists (your own added/renamed options)" },
+    { dataKey: "privacySettings", label: "Privacy settings (Anonymise mode PIN + preference)" },
+  ] },
 ];
 
 // Pure data assembly — no browser APIs touched here, so this part is
@@ -126,6 +148,8 @@ export function buildBackup(includeKeys = null) {
     symptomLog: SymptomLogRepository.getAll(),
     vaccinations: VaccinationRepository.getAll(),
     episodes: EpisodeRepository.getAll(),
+    customOptionLists: CustomOptionListsRepository.getAllForBackup(),
+    privacySettings: PrivacySettingsRepository.getSettings(),
   };
   const keySet = includeKeys ? new Set(includeKeys) : null;
   const data = keySet
@@ -171,7 +195,7 @@ export function parseBackupFile(jsonText) {
 // contact was edited in both places?) that isn't needed yet for a
 // single-device, single-user app.
 export function restoreBackup(parsedBackup) {
-  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile, tests, organisms, results, clinicVisits, symptomLog, vaccinations, episodes } = parsedBackup.data;
+  const { contacts, medications, logs, encounters, kinks, chems, protection, symptoms, locations, myProfile, tests, organisms, results, clinicVisits, symptomLog, vaccinations, episodes, customOptionLists, privacySettings } = parsedBackup.data;
   if (Array.isArray(contacts)) ContactRepository.replaceAll(contacts);
   if (Array.isArray(medications)) MedicationRepository.replaceAll(medications);
   if (Array.isArray(logs)) LogRepository.replaceAll(logs);
@@ -190,6 +214,8 @@ export function restoreBackup(parsedBackup) {
   if (Array.isArray(symptomLog)) SymptomLogRepository.replaceAll(symptomLog);
   if (Array.isArray(vaccinations)) VaccinationRepository.replaceAll(vaccinations);
   if (Array.isArray(episodes)) EpisodeRepository.replaceAll(episodes);
+  if (customOptionLists && typeof customOptionLists === "object") CustomOptionListsRepository.replaceAll(customOptionLists);
+  if (privacySettings && typeof privacySettings === "object") PrivacySettingsRepository.update(privacySettings);
   // Not Array.isArray — MyProfile is a singleton object, not a list.
   // Older backup files (from before 18 Aug 2026) simply won't have a
   // myProfile key at all, so this quietly no-ops on those rather than
@@ -210,6 +236,20 @@ export function restoreBackup(parsedBackup) {
 // claiming more than was actually checked.
 // ---------------------------------------------------------------------
 
+// ADDED 19 Aug 2026 — real ask: a reminder if it's been a while since
+// the last real export. Tracks a single timestamp, updated every time
+// exportBackup() actually runs — no separate "mark as backed up"
+// step, so it can never drift out of sync with reality.
+const LAST_BACKUP_KEY = "shos_last_backup_at";
+export const BACKUP_REMINDER_DAYS = 30;
+
+export function getLastBackupInfo() {
+  const lastAt = storage.load(LAST_BACKUP_KEY, null);
+  if (!lastAt) return { lastAt: null, daysSince: null, dueForReminder: true };
+  const daysSince = Math.floor((Date.now() - new Date(lastAt).getTime()) / 86400000);
+  return { lastAt, daysSince, dueForReminder: daysSince >= BACKUP_REMINDER_DAYS };
+}
+
 export function exportBackup(includeKeys = null) {
   const backup = buildBackup(includeKeys);
   const json = JSON.stringify(backup, null, 2);
@@ -224,6 +264,11 @@ export function exportBackup(includeKeys = null) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  // Only a FULL export counts as "properly backed up" for reminder
+  // purposes — a selective export deliberately leaves things out, so
+  // it shouldn't reset the clock on a reminder meant to catch "you
+  // have no real safety net right now".
+  if (!includeKeys) storage.save(LAST_BACKUP_KEY, new Date().toISOString());
 }
 
 // Takes a File object (from an <input type="file"> picker), reads it,

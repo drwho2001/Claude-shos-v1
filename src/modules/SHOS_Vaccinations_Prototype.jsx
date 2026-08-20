@@ -1,9 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Plus, ChevronLeft } from "lucide-react";
-import { VaccinationRepository, DEFAULT_VACCINATION, VACCINE_OPTIONS, REASON_OPTIONS, INJECTION_SITE_OPTIONS } from "../repositories/vaccinationRepository";
+import { Plus, ChevronLeft, Check, RefreshCcw } from "lucide-react";
+import { VaccinationRepository, DEFAULT_VACCINATION } from "../repositories/vaccinationRepository";
+// ADDED 19 Aug 2026 — VACCINE_OPTIONS/REASON_OPTIONS/INJECTION_SITE_OPTIONS
+// now live here, real in-app editable option lists.
+import { CustomOptionListsRepository } from "../repositories/customOptionListsRepository";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
 import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
+import { useEditUndo } from "../calculations/editUndoHelpers";
 
 // ADDED 19 Aug 2026 — Vaccinations, real live Notion schema. Same
 // self-contained-module pattern, Healthcare blue, Public Sans +
@@ -122,6 +126,10 @@ function ReadRow({ label, value, T, alert }) {
 
 function VaccinationSheet({ vaccination, onSave, onClose, T }) {
   const isNew = !vaccination;
+  // ADDED 19 Aug 2026 — real in-app editable option lists.
+  const vaccineOptions = useMemo(() => CustomOptionListsRepository.get("vaccine"), []);
+  const vaccinationReasonOptions = useMemo(() => CustomOptionListsRepository.get("vaccinationReason"), []);
+  const injectionSiteOptions = useMemo(() => CustomOptionListsRepository.get("injectionSite"), []);
   const draftKey = `vaccination_${vaccination?.id || "new"}`;
   const [form, setForm] = useState(() => {
     const draft = loadDraft(draftKey);
@@ -147,12 +155,12 @@ function VaccinationSheet({ vaccination, onSave, onClose, T }) {
         </div>
         <div style={{ overflowY: "auto", padding: "0 20px", flex: 1 }}>
           <TextField label="Title" value={form.title} onChange={set("title")} T={T} placeholder="e.g. Hep B booster" />
-          <SelectField label="Vaccine" value={form.vaccine} onChange={set("vaccine")} options={VACCINE_OPTIONS} T={T} />
-          <MultiSelectChips label="Reason" value={form.reason} onChange={set("reason")} options={REASON_OPTIONS} T={T} />
+          <SelectField label="Vaccine" value={form.vaccine} onChange={set("vaccine")} options={vaccineOptions} T={T} />
+          <MultiSelectChips label="Reason" value={form.reason} onChange={set("reason")} options={vaccinationReasonOptions} T={T} />
           <TextField label="Dose number" value={form.doseNumber ?? ""} onChange={(v) => set("doseNumber")(v === "" ? null : Number(v))} T={T} type="number" />
           <TextField label="Date" value={form.date} onChange={set("date")} T={T} type="date" />
           <TextField label="Next due" value={form.nextDue} onChange={set("nextDue")} T={T} type="date" />
-          <SelectField label="Injection site" value={form.injectionSite} onChange={set("injectionSite")} options={INJECTION_SITE_OPTIONS} T={T} />
+          <SelectField label="Injection site" value={form.injectionSite} onChange={set("injectionSite")} options={injectionSiteOptions} T={T} />
           <TextField label="Provider" value={form.provider} onChange={set("provider")} T={T} placeholder="e.g. Sexual Health Clinic" />
           <MultiSelectChips label="Symptom" value={form.symptomIds} onChange={set("symptomIds")}
             options={symptoms.map((s) => s.name)} T={T} />
@@ -264,6 +272,8 @@ function VaccinationsLanding({ onOpen, onAdd, T }) {
 
 export default function VaccinationsModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [screen, setScreen] = useState({ name: "list" });
+  // ADDED 19 Aug 2026 — real undo/redo extension.
+  const editUndo = useEditUndo(VaccinationRepository);
 
   useEffect(() => {
     if (openAddOnMount) {
@@ -275,7 +285,12 @@ export default function VaccinationsModule({ openAddOnMount = false, onConsumedQ
 
   const backToList = () => setScreen({ name: "list" });
   const createVaccination = (data) => { VaccinationRepository.create(data); backToList(); };
-  const saveVaccination = (data) => { VaccinationRepository.update(screen.id, data); setScreen({ name: "detail", id: screen.id }); };
+  const saveVaccination = (data) => {
+    editUndo.captureBeforeEdit(screen.id);
+    VaccinationRepository.update(screen.id, data);
+    editUndo.notifyEdited(screen.id);
+    setScreen({ name: "detail", id: screen.id });
+  };
 
   let content;
   if (screen.name === "list") content = <VaccinationsLanding T={LIGHT} onOpen={(id) => setScreen({ name: "detail", id })} onAdd={() => setScreen({ name: "add" })} />;
@@ -284,6 +299,15 @@ export default function VaccinationsModule({ openAddOnMount = false, onConsumedQ
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: LIGHT.bg, minHeight: "100vh" }}>
       <style>{FONT_IMPORT}</style>
+      {/* ADDED 19 Aug 2026 — real undo/redo toast, same pattern as
+          every other module. */}
+      {editUndo.toast && (
+        <div onClick={editUndo.toast.mode === "undo" ? editUndo.undo : editUndo.redo}
+          style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 340, background: editUndo.toast.mode === "undo" ? "#1B1B1F" : LIGHT.healthcareBlue, color: "#FFFFFF", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {editUndo.toast.mode === "undo" ? <Check size={14} /> : <RefreshCcw size={14} />}
+          {editUndo.toast.mode === "undo" ? "Vaccination updated — tap to undo" : "Undone — tap to redo"}
+        </div>
+      )}
       {content}
       {screen.name === "add" && <VaccinationSheet T={LIGHT} vaccination={null} onSave={createVaccination} onClose={backToList} />}
       {screen.name === "edit" && <VaccinationSheet T={LIGHT} vaccination={VaccinationRepository.getById(screen.id)} onSave={saveVaccination} onClose={() => setScreen({ name: "detail", id: screen.id })} />}

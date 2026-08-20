@@ -116,8 +116,16 @@ export const AVAILABILITY_RULE_TYPES = ["Unavailable", "Available"];
 // own stated "descending dominance" ordering), Vanilla added as a new
 // option — not everyone tracked here has a kink/power-exchange dynamic
 // at all, and there wasn't a way to say that before.
-export const BDSM_ROLE_OPTIONS = ["Dom", "Switch", "Sub", "Vanilla"];
-export const SEXUAL_POSITION_OPTIONS = ["Top", "Vers", "Bottom", "Oral only", "Side", "Kink"];
+// CHANGED 19 Aug 2026 — real ask: house style is "Dom" capitalized,
+// "sub" lowercase, applied consistently. No other code checks this
+// exact string (confirmed via project-wide grep before changing it),
+// so this is a safe, isolated fix — nothing downstream depends on the
+// old capitalization.
+export const BDSM_ROLE_OPTIONS = ["Dom", "Switch", "sub", "Vanilla"];
+// CHANGED 19 Aug 2026 — same house style fix as KINK_ROLE_OPTIONS —
+// Top capitalized, bottom lowercase, matching Dom/sub. Vers/Oral only/
+// Side/Kink are neither pole, stay as-is.
+export const SEXUAL_POSITION_OPTIONS = ["Top", "Vers", "bottom", "Oral only", "Side", "Kink"];
 // ADDED 18 Aug 2026 — new field, Kane's ask: a simple personal rating,
 // shown as its emoji on the card. Single-select (one rating per
 // contact, not a tag list) — ordered best to worst, matching how the
@@ -179,6 +187,15 @@ export const DEFAULT_CONTACT = {
   linkedContactLabels: {},
   // ADDED 18 Aug 2026 — personal rating, see RATING_OPTIONS above.
   rating: "",
+  // ADDED 19 Aug 2026 — real ask: manual override for the active/
+  // inactive flag. Kane's own example: a genuine one-off/anonymous
+  // encounter that will never recur isn't "inactive" in any meaningful
+  // sense — that flag exists to prompt "has it really been this
+  // long?", which is the wrong question for something deliberately
+  // one-time. When true, this Contact is excluded from the inactive
+  // calculation entirely, regardless of the configurable threshold
+  // below.
+  excludeFromActiveTracking: false,
 };
 
 // ---------------------------------------------------------------------

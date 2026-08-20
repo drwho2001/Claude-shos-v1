@@ -1,9 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Plus, ChevronLeft, MoreVertical, X, Archive, Check, Paperclip, Upload, Trash2 } from "lucide-react";
+import { Plus, ChevronLeft, MoreVertical, X, Archive, Check, Paperclip, Upload, Trash2, RefreshCcw } from "lucide-react";
+import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
   TestingRepository, DEFAULT_TEST,
-  SETTING_OPTIONS, SAMPLE_TYPE_OPTIONS, TESTING_FOR_OPTIONS,
+  SETTING_OPTIONS, TESTING_FOR_OPTIONS,
 } from "../repositories/testingRepository";
+// ADDED 19 Aug 2026 — SAMPLE_TYPE_OPTIONS now lives here, real in-app
+// editable list.
+import { CustomOptionListsRepository } from "../repositories/customOptionListsRepository";
 import { OrganismRegistry } from "../registries/organismRegistry";
 import { ResultsRegistry } from "../registries/resultsRegistry";
 // ADDED 19 Aug 2026 — real gap found in an orphaned-code audit:
@@ -13,6 +17,7 @@ import { ResultsRegistry } from "../registries/resultsRegistry";
 // shows its linked tests, Testing's never showed its linked visits.
 // One real direction of a two-way link with no UI at all.
 import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
+import { suggestedRoutineRetestDate } from "../calculations/testingCalculations";
 // ADDED 19 Aug 2026 — draft autosave, same pattern as every other
 // edit sheet this round. See draftStorage.js for the full reasoning.
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
@@ -168,6 +173,65 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder })
   );
 }
 
+// ADDED 19 Aug 2026 — real feedback batch: "only one Result should be
+// allowed at a time (currently multi-select) — retroactive updates
+// (Pending → Positive/Negative) should REPLACE, not add to, the
+// existing result." A real single-select variant of RegistryTagPicker
+// above — tapping a suggestion or committing typed text REPLACES the
+// selection rather than appending to it. Still writes/reads a
+// single-element array (`resultIds`) rather than a bare string, since
+// every other module that reads a test's result (Clinic Card,
+// Timeline, exposureWindows.js) already expects `resultIds` as an
+// array — this only changes what the UI lets you put IN it, not the
+// underlying data shape, so nothing downstream needed touching.
+function RegistrySingleResultPicker({ label, value, onChange, T, registry, placeholder }) {
+  const [draft, setDraft] = useState("");
+  const listId = `registry-result-${label.replace(/\s+/g, "-")}`;
+  const allEntries = registry.getAll().filter((e) => !e.isArchived);
+  const currentId = value[0] || null;
+  const currentName = currentId ? (allEntries.find((e) => e.id === currentId)?.name || registry.getById(currentId)?.name || "?") : null;
+  const visibleSuggestions = allEntries.filter((e) => e.id !== currentId).slice(0, 10);
+
+  const commit = () => {
+    const raw = draft.trim();
+    if (!raw) return;
+    const entry = registry.findOrCreate(raw);
+    if (entry) onChange([entry.id]);
+    setDraft("");
+  };
+  const tapSuggestion = (entry) => onChange([entry.id]);
+
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
+      {currentName && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          <div onClick={() => onChange([])}
+            style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, background: T.surfaceVariant, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            {currentName} <X size={11} />
+          </div>
+        </div>
+      )}
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((e) => (
+            <div key={e.id} onClick={() => tapSuggestion(e)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
+              {e.name}
+            </div>
+          ))}
+        </div>
+      )}
+      <input list={listId} value={draft} onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }}
+        onBlur={commit}
+        placeholder={placeholder || "Pick or type a result"}
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
+      <datalist id={listId}>{allEntries.map((e) => <option key={e.id} value={e.name} />)}</datalist>
+    </div>
+  );
+}
+
 // ADDED 19 Aug 2026 — Attachments, real and working, per Kane's ask
 // ("add attachment option for testing/clinic, but again not actually
 // used to date" — built as a genuine capability, kept intentionally
@@ -229,9 +293,11 @@ function AttachmentManager({ testId, attachments, onChanged, T }) {
 }
 
 // ── Add/Edit sheet ──
-function TestEditSheet({ testId, onClose, onSaved, T }) {
+function TestEditSheet({ testId, onClose, onSaved, onBeforeEdit, onAfterEdit, T }) {
   const isNew = !testId;
   const existing = testId ? TestingRepository.getById(testId) : null;
+  // ADDED 19 Aug 2026 — real in-app editable option list.
+  const sampleTypeOptions = useMemo(() => CustomOptionListsRepository.get("sampleType"), []);
   // ADDED 19 Aug 2026 — draft autosave.
   const draftKey = `testEdit_${testId || "new"}`;
   const [form, setForm] = useState(() => {
@@ -253,7 +319,10 @@ function TestEditSheet({ testId, onClose, onSaved, T }) {
       const created = TestingRepository.create(form);
       onSaved(created.id);
     } else {
+      // ADDED 19 Aug 2026 — real undo/redo extension.
+      onBeforeEdit?.(testId);
       TestingRepository.update(testId, form);
+      onAfterEdit?.(testId);
       onSaved(testId);
     }
   };
@@ -279,8 +348,12 @@ function TestEditSheet({ testId, onClose, onSaved, T }) {
         <SectionCard title="Overview" T={T}>
           <TextField label="Title" value={form.title} onChange={set("title")} T={T} placeholder="e.g. Routine 3-month screen" />
           <TextField label="Date" value={form.date ? form.date.slice(0, 10) : ""} onChange={(v) => set("date")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
+          {/* ADDED 19 Aug 2026 — real feedback batch: Result Date,
+              separate from the specimen date above — can lag behind
+              it depending on sample/lab turnaround. */}
+          <TextField label="Result date" value={form.resultDate ? form.resultDate.slice(0, 10) : ""} onChange={(v) => set("resultDate")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
           <SelectField label="Setting" value={form.setting} onChange={set("setting")} options={SETTING_OPTIONS} T={T} />
-          <MultiSelectChips label="Sample type" value={form.sampleType} onChange={set("sampleType")} options={SAMPLE_TYPE_OPTIONS} T={T} />
+          <MultiSelectChips label="Sample type" value={form.sampleType} onChange={set("sampleType")} options={sampleTypeOptions} T={T} />
           <MultiSelectChips label="Testing for?" value={form.testingFor} onChange={set("testingFor")} options={TESTING_FOR_OPTIONS} T={T} />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
             <span style={{ fontSize: 13, color: T.textPrimary }}>Most recent</span>
@@ -290,12 +363,45 @@ function TestEditSheet({ testId, onClose, onSaved, T }) {
 
         <SectionCard title="Result" T={T}>
           <RegistryTagPicker label="Organism (if positive)" value={form.organismIds} onChange={set("organismIds")} registry={OrganismRegistry} T={T} placeholder="e.g. Chlamydia" />
-          <RegistryTagPicker label="Result" value={form.resultIds} onChange={set("resultIds")} registry={ResultsRegistry} T={T} placeholder="e.g. Positive, Negative" />
-          <TextField label="Follow-up actioned date" value={form.followUpActionedDate ? form.followUpActionedDate.slice(0, 10) : ""} onChange={(v) => set("followUpActionedDate")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
+          {/* CHANGED 19 Aug 2026 — real feedback batch: only one Result
+              should ever apply at a time — picking a new one now
+              REPLACES rather than adds to the existing selection, so
+              a retroactive Pending → Positive update genuinely
+              updates the result instead of leaving both. */}
+          <RegistrySingleResultPicker label="Result" value={form.resultIds} onChange={set("resultIds")} registry={ResultsRegistry} T={T} placeholder="e.g. Positive, Negative" />
+          {/* CHANGED 19 Aug 2026 — relabeled per real feedback: this
+              date specifically means "when treatment happened, if
+              positive" — not a generic catch-all follow-up date. */}
+          <TextField label="Date of treatment (if positive)" value={form.followUpActionedDate ? form.followUpActionedDate.slice(0, 10) : ""} onChange={(v) => set("followUpActionedDate")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
+          {/* ADDED 19 Aug 2026 — real feedback batch: a free-text
+              written plan, distinct from the structured date above —
+              answers "what's the plan" rather than "when was it done". */}
+          <TextField label="Written plan" value={form.writtenPlan} onChange={set("writtenPlan")} T={T} placeholder="e.g. f/u in 2 weeks for treatment" />
+          {/* ADDED 19 Aug 2026 — real feedback batch: "if negative,
+              follow-up defaults to nil or routine 3-month retest
+              (6-month if HIV is next due)". Purely informational —
+              computed fresh from the real result/date/testingFor,
+              never stored, same spirit as the exposure-window
+              flagging elsewhere in this app. Only shows once a
+              Negative result and a date are both present. */}
+          {(() => {
+            const suggested = suggestedRoutineRetestDate(form);
+            return suggested ? (
+              <div style={{ fontSize: 12, color: T.healthcareBlue, background: `${T.healthcareBlue}12`, borderRadius: radius.sm, padding: "8px 10px", marginTop: 6 }}>
+                Routine retest suggested around {formatDate(suggested)} ({(form.testingFor || []).includes("HIV") ? "6 months" : "3 months"} after this test).
+              </div>
+            ) : null;
+          })()}
         </SectionCard>
 
         <SectionCard title="Notes" T={T}>
-          <TextField label="Tracking info" value={form.trackingInfo} onChange={set("trackingInfo")} T={T} placeholder="e.g. barcode, reference number" />
+          {/* CHANGED 19 Aug 2026 — real feedback batch: clarified this
+              is specifically for home test kits, and only shown when
+              Setting is actually Home — was previously always visible
+              with no context for what it was for. */}
+          {form.setting === "🏠 Home" && (
+            <TextField label="Tracking info (home test kit)" value={form.trackingInfo} onChange={set("trackingInfo")} T={T} placeholder="e.g. barcode, reference number" />
+          )}
         </SectionCard>
 
         {!isNew && (
@@ -344,16 +450,26 @@ function TestDetail({ testId, onBack, onEdit, T }) {
           <ReadRow label="Sample type" value={test.sampleType} T={T} />
           <ReadRow label="Testing for?" value={test.testingFor} T={T} />
           <ReadRow label="Most recent" value={test.mostRecent ? "Yes" : ""} T={T} />
+          <ReadRow label="Result date" value={test.resultDate ? formatDate(test.resultDate) : ""} T={T} />
         </SectionCard>
 
         <SectionCard title="Result" T={T}>
           <ReadRow label="Organism" value={organismNames} T={T} />
           <ReadRow label="Result" value={resultNames} T={T} />
-          <ReadRow label="Follow-up actioned" value={formatDate(test.followUpActionedDate) !== "—" ? formatDate(test.followUpActionedDate) : ""} T={T} />
+          <ReadRow label="Date of treatment" value={formatDate(test.followUpActionedDate) !== "—" ? formatDate(test.followUpActionedDate) : ""} T={T} />
+          <ReadRow label="Written plan" value={test.writtenPlan} T={T} />
+          {(() => {
+            const suggested = suggestedRoutineRetestDate(test);
+            return suggested ? (
+              <div style={{ fontSize: 12, color: T.healthcareBlue, background: `${T.healthcareBlue}12`, borderRadius: radius.sm, padding: "8px 10px", marginTop: 8 }}>
+                Routine retest suggested around {formatDate(suggested)}.
+              </div>
+            ) : null;
+          })()}
         </SectionCard>
 
         <SectionCard title="Notes" T={T}>
-          <ReadRow label="Tracking info" value={test.trackingInfo} T={T} />
+          {test.setting === "🏠 Home" && <ReadRow label="Tracking info (home test kit)" value={test.trackingInfo} T={T} />}
         </SectionCard>
 
         {test.attachments.length > 0 && (
@@ -435,6 +551,9 @@ function TestingLanding({ onOpen, onAdd, T }) {
 export default function TestingModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [screen, setScreen] = useState({ name: "landing" });
   const T = LIGHT;
+  // ADDED 19 Aug 2026 — real undo/redo extension, same shared
+  // mechanism as Encounters/Contacts/Medication.
+  const editUndo = useEditUndo(TestingRepository);
 
   // Same Dashboard quick-add pattern as every other module this
   // session — see SHOS_Contacts_Prototype.jsx for the fuller reasoning.
@@ -457,13 +576,24 @@ export default function TestingModule({ openAddOnMount = false, onConsumedQuickA
     screenContent = (
       <TestEditSheet T={T} testId={screen.id}
         onClose={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
-        onSaved={(id) => setScreen({ name: "detail", id })} />
+        onSaved={(id) => setScreen({ name: "detail", id })}
+        onBeforeEdit={editUndo.captureBeforeEdit}
+        onAfterEdit={editUndo.notifyEdited} />
     );
   }
 
   return (
     <div style={{ background: T.bg, minHeight: "100vh" }}>
       <style>{`${FONT_IMPORT}`}</style>
+      {/* ADDED 19 Aug 2026 — real undo/redo toast, same pattern as
+          every other module. */}
+      {editUndo.toast && (
+        <div onClick={editUndo.toast.mode === "undo" ? editUndo.undo : editUndo.redo}
+          style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 340, background: editUndo.toast.mode === "undo" ? "#1B1B1F" : T.healthcareBlue, color: "#FFFFFF", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {editUndo.toast.mode === "undo" ? <Check size={14} /> : <RefreshCcw size={14} />}
+          {editUndo.toast.mode === "undo" ? "Test updated — tap to undo" : "Undone — tap to redo"}
+        </div>
+      )}
       {screenContent}
     </div>
   );

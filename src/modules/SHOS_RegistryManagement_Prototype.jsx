@@ -81,7 +81,8 @@ export default function RegistryManagementScreen({ registry, label, color, compu
             <span style={{ fontSize: 11, color: T.textDisabled, marginLeft: 8 }}>{usage === 0 ? "unused" : `used ${usage}×`}</span>
           </div>
         )}
-        <div onClick={() => toggleArchive(entry)} style={{ cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}>
+        <div onClick={() => toggleArchive(entry)} style={{ cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }}
+          title={entry.isArchived ? "Restore" : "Archive"}>
           {entry.isArchived ? <ArchiveRestore size={15} color={color} /> : <Archive size={15} color={T.textSecondary} />}
         </div>
       </div>

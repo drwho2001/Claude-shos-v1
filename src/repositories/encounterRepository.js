@@ -91,7 +91,10 @@ export const CUM_LOCATION_OPTIONS = [
 // and it overlapped conceptually with N/A anyway. Reordered to Dom >
 // Switch > Sub > Vanilla > N/A, and "Vanilla / N/A" split into its
 // own two separate options rather than one combined choice.
-export const MY_ROLE_OPTIONS = ["Dom", "Switch", "Sub", "Vanilla", "N/A"];
+// CHANGED 19 Aug 2026 — real ask: same house style fix as
+// BDSM_ROLE_OPTIONS in contactRepository.js — "Dom" capitalized, "sub"
+// lowercase.
+export const MY_ROLE_OPTIONS = ["Dom", "Switch", "sub", "Vanilla", "N/A"];
 
 export const PREP_COVERAGE_OPTIONS = [
   "Adequate - daily (≥4/week)", "Adequate - Event-based (2-1-1)",

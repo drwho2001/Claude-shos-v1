@@ -2,8 +2,9 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, Search, ChevronLeft, MoreVertical, X, Archive, Settings2, Users,
   Phone, Ghost, Globe, MessageCircle, Car, AlertTriangle, Trash2, Link2,
-  Upload, Download, Check, User, Home, MapPin,
+  Upload, Download, Check, User, Home, MapPin, EyeOff, RefreshCcw,
 } from "lucide-react";
+import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
   ContactRepository, DEFAULT_CONTACT,
   HOSTS_OPTIONS, TRAVELS_OPTIONS, TRAVEL_MODE_OPTIONS,
@@ -14,6 +15,12 @@ import {
   BDSM_ROLE_OPTIONS, SEXUAL_POSITION_OPTIONS,
 } from "../repositories/contactRepository";
 import { getKnownCities, getKnownValues, getCompletenessScore, getContactableVia, normalizeTag, extractKinkRoleFromText } from "../calculations/contactCalculations";
+// ADDED 19 Aug 2026 — Anonymise mode. See privacySettingsRepository.js
+// for the full reasoning. Read-only from Contacts' side, same
+// one-directional pattern as every other cross-module read in this app.
+import { PrivacySettingsRepository } from "../repositories/privacySettingsRepository";
+// ADDED 19 Aug 2026 — real ask: configurable inactive-contact threshold.
+import { AppPreferencesRepository } from "../repositories/appPreferencesRepository";
 // New 18 Aug 2026: Encounters module now exists, so the Timeline
 // section below can read real data instead of showing the "not built
 // yet" stub. Read-only from Contacts' side — Contacts never writes to
@@ -70,6 +77,14 @@ function focusNextField(el) {
   const idx = focusables.indexOf(el);
   if (idx > -1 && idx < focusables.length - 1) focusables[idx + 1].focus();
 }
+
+// ADDED 19 Aug 2026 — Anonymise mode masking. ONE consistent
+// placeholder, deliberately not a partial mask like "J*** D**" —
+// partial masking can still leak enough to identify someone, a plain
+// generic placeholder can't. `MASKED` covers the base tier (name,
+// city, car registration); profile pictures are hidden entirely
+// rather than shown blurred, for the same reason.
+const MASKED = "•••• hidden";
 
 function displayName(contact) {
   return contact.nickname || contact.name;
@@ -810,7 +825,7 @@ function LinkedContactsField({ contactId, allContacts, T, refresh }) {
 }
 
 
-function ContactCard({ contact, onOpen, T, encounters = [] }) {
+function ContactCard({ contact, onOpen, T, encounters = [], anonymise = false, inactiveThresholdDays = 90 }) {
   const flaggedDontMeetAgain = contact.meetAgain === "No";
   // CHANGED 18 Aug 2026 — real feedback: the card was showing an icon
   // per detected contact method, and Fabguys/Fabswingers both mapped to
@@ -835,7 +850,12 @@ function ContactCard({ contact, onOpen, T, encounters = [] }) {
   const daysSinceLastInteraction = summary.lastInteraction
     ? Math.floor((Date.now() - new Date(summary.lastInteraction).getTime()) / 86400000)
     : null;
-  const isInactive = daysSinceLastInteraction !== null && daysSinceLastInteraction > 90;
+  // CHANGED 19 Aug 2026 — real ask: threshold is now configurable
+  // (Settings → Preferences), was hardcoded at 90. Also real ask: a
+  // manual override for a genuine one-off/anonymous contact that will
+  // never recur — excludeFromActiveTracking skips the flag entirely
+  // regardless of how long it's actually been.
+  const isInactive = !contact.excludeFromActiveTracking && daysSinceLastInteraction !== null && daysSinceLastInteraction > inactiveThresholdDays;
   // Rating is stored with its emoji embedded ("😍 Love") — just the
   // emoji character shows on the card, full label on the profile.
   const ratingEmoji = contact.rating ? contact.rating.split(" ")[0] : null;
@@ -845,22 +865,24 @@ function ContactCard({ contact, onOpen, T, encounters = [] }) {
       {/* ADDED 19 Aug 2026 — small thumbnail, only takes up card space
           when a photo actually exists, so contacts without one look
           exactly as before (no empty placeholder circle cluttering
-          every card). */}
-      {contact.profilePicture && (
+          every card).
+          CHANGED 19 Aug 2026 — hidden entirely under Anonymise mode,
+          rather than shown blurred, per the base-tier field list. */}
+      {contact.profilePicture && !anonymise && (
         <img src={contact.profilePicture} alt="" style={{ width: 44, height: 44, borderRadius: radius.full, objectFit: "cover", flexShrink: 0 }} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
         <span title={isInactive ? "No encounter in over 90 days" : undefined}
           style={{ width: 8, height: 8, borderRadius: radius.full, background: isInactive ? T.actionRed : T.contactsTeal, display: "inline-block" }} />
-        <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 15, color: T.textPrimary }}>{displayName(contact)}</span>
+        <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 15, color: T.textPrimary }}>{anonymise ? MASKED : displayName(contact)}</span>
         {ratingEmoji && <span style={{ fontSize: 14 }}>{ratingEmoji}</span>}
         {/* Age — tuned this round to sit close in size to the name (was
             too small a jump, 12px vs 15px reading as a much bigger drop
             than intended). Now 14px, one step down, not two. */}
         {contact.age != null && <span style={{ fontSize: 14, color: T.textSecondary }}>· {contact.ageIsApprox ? "≈" : ""}{contact.age}</span>}
         <MethodIcons methods={methods} T={T} />
-        {contact.city && <span style={{ fontSize: 12, color: T.textSecondary }}>· {contact.city}</span>}
+        {contact.city && !anonymise && <span style={{ fontSize: 12, color: T.textSecondary }}>· {contact.city}</span>}
         {contact.drives && <Car size={13} color={T.textSecondary} />}
         {/* ADDED 18 Aug 2026 — hosts/travels indicator, Kane's ask:
             "house or car icon" — House if they host, MapPin if they
@@ -1004,6 +1026,19 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
           {form.meetAgain === "No" && (
             <TextField T={T} label="Reason" value={form.dontMeetAgainReason} onChange={set("dontMeetAgainReason")} placeholder="Optional, but helps future-you remember why" />
           )}
+          {/* ADDED 19 Aug 2026 — real ask: manual override for the
+              active/inactive flag, for a genuine one-off/anonymous
+              contact that will never recur — the red "inactive" flag
+              exists to prompt "has it really been this long?", which
+              is the wrong question for something deliberately
+              one-time. */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
+            <div style={{ flex: 1, paddingRight: 12 }}>
+              <div style={{ fontSize: 13, color: T.textPrimary }}>One-off / never expect to recur</div>
+              <div style={{ fontSize: 11, color: T.textDisabled, marginTop: 2 }}>Excludes this contact from the inactive flag entirely — for a genuine one-time encounter, not a gap you'd want flagged.</div>
+            </div>
+            <ToggleSwitch T={T} value={form.excludeFromActiveTracking} onChange={set("excludeFromActiveTracking")} />
+          </div>
         </SectionCard>
 
         <SectionCard T={T} title="Location & logistics">
@@ -1115,6 +1150,10 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
   const contact = ContactRepository.getById(contactId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  // ADDED 19 Aug 2026 — Anonymise mode, same read pattern as ContactsList.
+  const [privacy] = useState(() => PrivacySettingsRepository.getSettings());
+  const anonymise = privacy.anonymiseModeActive;
+  const hideFurther = anonymise && privacy.hideFurtherEnabled;
   if (!contact) return null;
 
   const archive = () => { ContactRepository.archive(contact.id); refresh(); onBack(); };
@@ -1126,7 +1165,12 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 16px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onBack} />
-          <span style={{ fontSize: 18, fontWeight: 700, color: T.textPrimary }}>{displayName(contact)}</span>
+          {/* CHANGED 19 Aug 2026 — real ask: font-size consistency
+              audit found this at 18/700 while every other module's
+              equivalent detail-view record title (Testing/Clinic
+              Visits/Vaccinations/Symptom Log/Timeline) uses 20/700 —
+              a real, isolated slip, not a deliberate choice. */}
+          <span style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary }}>{displayName(contact)}</span>
         </div>
         <div style={{ position: "relative" }}>
           <MoreVertical size={20} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={() => setMenuOpen((o) => !o)} />
@@ -1171,11 +1215,11 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
       <div style={{ padding: "0 16px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2 }}>
           <span style={{ width: 14, height: 14, borderRadius: radius.full, background: T.contactsTeal, display: "inline-block" }} />
-          <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 20, color: T.textPrimary }}>{displayName(contact)}</span>
+          <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 700, fontSize: 20, color: T.textPrimary }}>{anonymise ? MASKED : displayName(contact)}</span>
           {contact.age != null && <span style={{ fontSize: 15, color: T.textSecondary }}>{contact.ageIsApprox ? "≈" : ""}{contact.age}</span>}
           <MethodIcons methods={methods} T={T} size={16} />
         </div>
-        {contact.nickname && <div style={{ fontSize: 12, color: T.textDisabled, marginLeft: 24 }}>Full name: {contact.name}</div>}
+        {contact.nickname && !anonymise && <div style={{ fontSize: 12, color: T.textDisabled, marginLeft: 24 }}>Full name: {contact.name}</div>}
 
         {/* REORDERED 19 Aug 2026 — matches the edit sheet's own reorder,
             same reasoning: how to reach someone reads more naturally
@@ -1199,11 +1243,11 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
           <ReadRow T={T} label="Hosts" value={contact.hosts} />
           <ReadRow T={T} label="Travels" value={contact.travels} />
           <ReadRow T={T} label="Travel mode" value={contact.travelMode} />
-          <ReadRow T={T} label="Address" value={contact.address} />
-          <ReadRow T={T} label="City" value={contact.city} />
+          <ReadRow T={T} label="Address" value={anonymise ? MASKED : contact.address} />
+          <ReadRow T={T} label="City" value={anonymise ? MASKED : contact.city} />
           <ReadRow T={T} label="Drives" value={contact.drives} />
           <ReadRow T={T} label="Car details" value={contact.carDetails} />
-          <ReadRow T={T} label="Car registration" value={contact.carRegistration} />
+          <ReadRow T={T} label="Car registration" value={anonymise ? MASKED : contact.carRegistration} />
           <ReadRow T={T} label="Availability" value={contact.availability} />
           {contact.nonAvailabilityRules?.length > 0 && (
             <div style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13 }}>
@@ -1217,16 +1261,22 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </SectionCard>
 
         <SectionCard T={T} title="Kink">
-          <ReadRow T={T} label="Stated kinks" value={contact.statedKinks.map((sel) => {
-            const name = KinkRegistry.getById(sel.kinkId)?.name;
-            return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
-          }).filter(Boolean)} />
-          <ReadRow T={T} label="Limits" value={contact.limits.map((sel) => {
-            const name = KinkRegistry.getById(sel.kinkId)?.name;
-            return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
-          }).filter(Boolean)} />
-          <ReadRow T={T} label="Role" value={contact.bdsmRole} />
-          <ReadRow T={T} label="Position" value={contact.sexualPosition} />
+          {hideFurther ? (
+            <div style={{ fontSize: 13, color: T.textDisabled, fontStyle: "italic", padding: "6px 0" }}>{MASKED}</div>
+          ) : (
+            <>
+              <ReadRow T={T} label="Stated kinks" value={contact.statedKinks.map((sel) => {
+                const name = KinkRegistry.getById(sel.kinkId)?.name;
+                return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+              }).filter(Boolean)} />
+              <ReadRow T={T} label="Limits" value={contact.limits.map((sel) => {
+                const name = KinkRegistry.getById(sel.kinkId)?.name;
+                return name ? (sel.role ? `${name} (${sel.role})` : name) : null;
+              }).filter(Boolean)} />
+              <ReadRow T={T} label="Role" value={contact.bdsmRole} />
+              <ReadRow T={T} label="Position" value={contact.sexualPosition} />
+            </>
+          )}
         </SectionCard>
 
         <SectionCard T={T} title="Chems">
@@ -1234,12 +1284,18 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </SectionCard>
 
         <SectionCard T={T} title="Physical & health">
-          <ReadRow T={T} label="Length (penis)" value={contact.length} />
-          <ReadRow T={T} label="Girth (penis)" value={contact.thickness} />
+          {/* CHANGED 19 Aug 2026 — Anonymise mode's "hide further" tier:
+              physical attributes (length/girth/cummer), per Kane's
+              exact wording ("kinks, physical attributes (cum, dick
+              stats)"). Foreskin/chastity/PrEP-DoxyPEP/last-tested left
+              visible — not named in the ask, and arguably closer to
+              health-relevant than identity-revealing. */}
+          <ReadRow T={T} label="Length (penis)" value={hideFurther ? MASKED : contact.length} />
+          <ReadRow T={T} label="Girth (penis)" value={hideFurther ? MASKED : contact.thickness} />
           <ReadRow T={T} label="Foreskin" value={contact.foreskin} />
           <ReadRow T={T} label="Foreskin fit" value={contact.foreskinDetail} />
           <ReadRow T={T} label="Chastity status" value={contact.chastityStatus} />
-          <ReadRow T={T} label="Cummer" value={contact.cummer} />
+          <ReadRow T={T} label="Cummer" value={hideFurther ? MASKED : contact.cummer} />
           <ReadRow T={T} label="Known to be on" value={contact.knownPrepDoxy} />
           <ReadRow T={T} label="Last tested" value={contact.lastTestedDate} />
         </SectionCard>
@@ -1332,6 +1388,14 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
 
 // ── Contacts List ──
 function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, setQuery, onOpenMyProfile, onOpenImportProfile }) {
+  // ADDED 19 Aug 2026 — Anonymise mode. Read once per mount, same
+  // pattern as every other cross-module settings read in this app —
+  // toggling it in Settings and switching back to Contacts (a fresh
+  // remount) picks up the new value naturally.
+  const [privacy] = useState(() => PrivacySettingsRepository.getSettings());
+  const anonymise = privacy.anonymiseModeActive;
+  // ADDED 19 Aug 2026 — real ask: configurable inactive threshold.
+  const [inactiveThresholdDays] = useState(() => AppPreferencesRepository.getPreferences().inactiveThresholdDays);
   const activeContacts = useMemo(() => contacts.filter((c) => !c.isArchived), [contacts]);
   // ADDED 18 Aug 2026 — loaded once here rather than per-card, needed
   // for the card's active-status dot (see ContactCard below).
@@ -1358,6 +1422,13 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
 
   return (
     <div>
+      {/* ADDED 19 Aug 2026 — visible confirmation that data is
+          deliberately masked, not missing/broken. */}
+      {anonymise && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "8px 16px 0", padding: "8px 12px", borderRadius: radius.sm, background: "#1B1B1F", color: "#FFFFFF", fontSize: 12, fontWeight: 600 }}>
+          <EyeOff size={13} /> Anonymise mode is on — names, photos, cities, and car details are hidden.
+        </div>
+      )}
       <div style={{ padding: "18px 16px 2px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Contacts</span>
         {/* ADDED 18 Aug 2026 — My Profile and Import Shared Profile both
@@ -1405,7 +1476,7 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 16px 100px" }}>
-          {filtered.map((c) => <ContactCard key={c.id} contact={c} onOpen={onOpen} T={T} encounters={encounters} />)}
+          {filtered.map((c) => <ContactCard key={c.id} contact={c} onOpen={onOpen} T={T} encounters={encounters} anonymise={anonymise} inactiveThresholdDays={inactiveThresholdDays} />)}
         </div>
       )}
 
@@ -1425,6 +1496,9 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
 export default function ContactsModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [contacts, setContacts] = useState(() => loadContacts());
   const refresh = () => setContacts(loadContacts());
+  // ADDED 19 Aug 2026 — real undo/redo, same shared mechanism as
+  // Encounters — see editUndoHelpers.js.
+  const editUndo = useEditUndo(ContactRepository);
 
   const [screen, setScreen] = useState("list");
   const [activeContactId, setActiveContactId] = useState(null);
@@ -1458,7 +1532,12 @@ export default function ContactsModule({ openAddOnMount = false, onConsumedQuick
 
   const saveEdit = (form) => {
     if (editingContact && editingContact.id) {
+      // ADDED 19 Aug 2026 — real undo/redo: snapshot right before the
+      // real update happens, so undo restores the genuine pre-edit
+      // state.
+      editUndo.captureBeforeEdit(editingContact.id);
       ContactRepository.update(editingContact.id, form);
+      editUndo.notifyEdited(editingContact.id);
     } else {
       ContactRepository.create(form);
     }
@@ -1469,6 +1548,15 @@ export default function ContactsModule({ openAddOnMount = false, onConsumedQuick
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: T.bg, minHeight: "100vh", display: "flex", justifyContent: "center" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`}</style>
+      {/* ADDED 19 Aug 2026 — real undo/redo toast, same visual pattern
+          as Medication's own, kept consistent. */}
+      {editUndo.toast && (
+        <div onClick={editUndo.toast.mode === "undo" ? editUndo.undo : editUndo.redo}
+          style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 340, background: editUndo.toast.mode === "undo" ? "#1B1B1F" : T.contactsTeal, color: "#FFFFFF", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {editUndo.toast.mode === "undo" ? <Check size={14} /> : <RefreshCcw size={14} />}
+          {editUndo.toast.mode === "undo" ? "Contact updated — tap to undo" : "Undone — tap to redo"}
+        </div>
+      )}
       <div style={{ width: 390, background: T.bg, minHeight: "100vh", borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}` }}>
         {screen === "list" ? (
           <ContactsList contacts={contacts} T={T} onOpen={openProfile} onAdd={() => setEditingContact({})} sortBy={sortBy} setSortBy={setSortBy} query={query} setQuery={setQuery}

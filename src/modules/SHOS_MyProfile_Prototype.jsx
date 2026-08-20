@@ -601,12 +601,22 @@ function ProfileDataView({ profile, T }) {
 // a small button near the bottom, or folded into Settings once that
 // exists. Settings doesn't exist yet, so: small button near the bottom,
 // same spirit either way.
+// CHANGED 19 Aug 2026 — real ask: "don't want to accidentally click
+// it." Both actions now require a confirm tap rather than firing
+// immediately — same principle as Developer Tools' reset-all-data
+// two-step confirm, just lighter-weight since exporting isn't
+// destructive, only sensitive. Placement left as-is (small buttons
+// near the bottom) — Kane deferred the placement call to be reassessed
+// after a real click-through, this pass only fixes the accidental-tap
+// risk, not where the buttons live.
 function ShareProfilePanel({ T }) {
   const [status, setStatus] = useState(null);
+  const [confirming, setConfirming] = useState(null); // "file" | "text" | null
 
   const doExportFile = () => {
     exportProfileShare();
     setStatus({ ok: true, msg: "Profile file downloaded." });
+    setConfirming(null);
   };
 
   const doCopyText = async () => {
@@ -617,7 +627,26 @@ function ShareProfilePanel({ T }) {
     } catch {
       setStatus({ ok: false, msg: "Couldn't copy automatically — select and copy the text manually." });
     }
+    setConfirming(null);
   };
+
+  if (confirming) {
+    return (
+      <div style={{ padding: "8px 16px 100px" }}>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: radius.md, padding: 14, textAlign: "center" }}>
+          <div style={{ fontSize: 13, color: T.textPrimary, marginBottom: 10 }}>
+            {confirming === "file" ? "Download your profile as a file?" : "Copy your profile as text?"}
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+            <div onClick={() => setConfirming(null)} style={{ padding: "7px 16px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Cancel</div>
+            <div onClick={confirming === "file" ? doExportFile : doCopyText} style={{ padding: "7px 16px", borderRadius: radius.full, background: T.textPrimary, color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+              {confirming === "file" ? "Download" : "Copy"}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "8px 16px 100px" }}>
@@ -625,10 +654,10 @@ function ShareProfilePanel({ T }) {
         Sharing sends only what's above — never relationship notes or how-we-met info, since those don't exist on this record.
       </div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-        <div onClick={doExportFile} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <div onClick={() => setConfirming("file")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <Download size={13} /> Save as file
         </div>
-        <div onClick={doCopyText} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <div onClick={() => setConfirming("text")} style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 14px", borderRadius: radius.full, border: `1px solid ${T.border}`, color: T.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
           <Copy size={13} /> Copy as text
         </div>
       </div>

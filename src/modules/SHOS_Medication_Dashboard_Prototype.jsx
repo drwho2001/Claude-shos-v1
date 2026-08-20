@@ -3,9 +3,16 @@ import { Plus, AlertTriangle, Check, RefreshCcw, Pill, Search, Settings as Setti
 // The dashboard no longer owns its own medication/log data — it reads and
 // writes through these two repositories instead. Nothing about how the UI
 // looks or behaves changes; this just moves WHERE the facts actually live.
-import { MedicationRepository, ROUTE_OPTIONS, DOSE_UNIT_OPTIONS, MEDICATION_TYPE_OPTIONS } from "../repositories/medicationRepository";
+import { MedicationRepository, DOSE_UNIT_OPTIONS } from "../repositories/medicationRepository";
+// ADDED 19 Aug 2026 — MEDICATION_TYPE_OPTIONS/ROUTE_OPTIONS now live
+// here, real in-app editable option lists — see
+// customOptionListsRepository.js for the full reasoning.
+import { CustomOptionListsRepository } from "../repositories/customOptionListsRepository";
+import { useEditUndo } from "../calculations/editUndoHelpers";
+import { localStorageAdapter } from "../storage/storageAdapter";
+import { useDarkModePreference } from "../calculations/darkModePreference";
 import { LogRepository } from "../repositories/logRepository";
-import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut, lockoutEndsEstimate } from "../calculations/medicationCalculations";
+import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut, lockoutEndsEstimate, effectiveDoseIntervalHours } from "../calculations/medicationCalculations";
 // ADDED 19 Aug 2026 — real ask: allergies visible "± medications at
 // the top" too, not just on Clinic Card. Read-only here — Allergies
 // itself is edited on My Profile, this is just a visibility surface.
@@ -127,7 +134,7 @@ function AdherencePill({ label, hit, expected, T }) {
   );
 }
 
-function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequested, onOpenCorrection, onEditMedication, onMoveUp, onMoveDown, onArchive, isFirst, isLast, justCompleted, T, cardRef, highlighted, menuOpen, onToggleMenu, snoozedUntil }) {
+function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequested, onOpenCorrection, onEditMedication, onMoveUp, onMoveDown, onArchive, isFirst, isLast, justCompleted, T, darkMode, cardRef, highlighted, menuOpen, onToggleMenu, snoozedUntil }) {
   const stock = computeStock(med);
   const adherence = computeAdherence(med);
   const lastDose = [...med.logs].filter((l) => l.type === "dose" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
@@ -248,11 +255,20 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
           )}
 
           {adherence && (
-            <div style={{ display: "flex", justifyContent: "space-around", background: `${T.medsBlue}15`, border: `1px solid ${T.medsBlue}40`, borderRadius: radius.sm, padding: "9px 4px", marginTop: 10 }}>
+            // CHANGED 19 Aug 2026 — real ask: "the streak colour
+            // background in night mode should speak across the entire
+            // three values/whole button" — previously the amber only
+            // wrapped the streak digit itself, while the outer box
+            // stayed the same blue tint every time regardless of mode.
+            // Now the WHOLE box carries the streak amber in dark mode
+            // specifically (light mode was never flagged as an issue,
+            // stays exactly as it was). The inner streak-only pill is
+            // removed since it's now redundant — the Flame icon alone
+            // carries the visual distinction once the whole box is
+            // already amber-toned.
+            <div style={{ display: "flex", justifyContent: "space-around", background: darkMode ? T.streakGlow : `${T.medsBlue}15`, border: `1px solid ${darkMode ? "#F59E0B66" : `${T.medsBlue}40`}`, borderRadius: radius.sm, padding: "9px 4px", marginTop: 10 }}>
               <div style={{ textAlign: "center" }}>
-                <div style={{ background: T.streakGlow, borderRadius: radius.full, padding: "3px 10px", display: "inline-flex" }}>
-                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 700, color: T.medsBlue, display: "flex", alignItems: "center", gap: 3, justifyContent: "center" }}><Flame size={13} color={T.actionRed} />{adherence.streak}d</div>
-                </div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 700, color: T.medsBlue, display: "flex", alignItems: "center", gap: 3, justifyContent: "center" }}><Flame size={13} color={T.actionRed} />{adherence.streak}d</div>
                 <div style={{ fontSize: 10, color: T.textSecondary, fontWeight: 600, marginTop: 1 }}>streak</div>
               </div>
               <AdherencePill T={T} label="7-day" hit={adherence.sevenDay.hit} expected={adherence.sevenDay.expected} />
@@ -484,11 +500,20 @@ function InventoryTab({ meds, T, onEditMedication }) {
                   <><Clock size={11} color={T.goldText} /><span style={{ color: T.goldText }}>Refill requested {daysFromNow(m.refillRequestedAt)}</span></>
                 ) : s.needsAction ? (
                   <><AlertTriangle size={11} color={T.actionRed} /><span style={{ color: T.actionRed }}>Refill needed, not yet requested</span></>
-                ) : m.usagePattern !== "prn" && m.dosesPerDay > 0 ? (
-                  <><Check size={11} color={T.actionGreen} /><span style={{ color: T.actionGreen }}>Refill expected in ~{Math.floor((s.currentStock - m.refillThreshold) / (m.unitsPerDose * m.dosesPerDay))}d</span></>
-                ) : (
-                  <><Check size={11} color={T.actionGreen} /><span style={{ color: T.actionGreen }}>Not needed yet</span></>
-                )}
+                ) : (() => {
+                  // CHANGED 19 Aug 2026 — generalized via
+                  // effectiveDoseIntervalHours() so custom (every-N-days)
+                  // meds get a real "refill expected in ~Xd" estimate
+                  // too, not just daily ones (previously fell through to
+                  // a generic "Not needed yet" with no timeframe).
+                  const intervalHours = effectiveDoseIntervalHours(m);
+                  const dailyConsumption = intervalHours ? (m.unitsPerDose * 24) / intervalHours : 0;
+                  return m.usagePattern !== "prn" && dailyConsumption > 0 ? (
+                    <><Check size={11} color={T.actionGreen} /><span style={{ color: T.actionGreen }}>Refill expected in ~{Math.floor((s.currentStock - m.refillThreshold) / dailyConsumption)}d</span></>
+                  ) : (
+                    <><Check size={11} color={T.actionGreen} /><span style={{ color: T.actionGreen }}>Not needed yet</span></>
+                  );
+                })()}
               </div>
             )}
             {m.usualSupplier && <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 2, marginLeft: 16 }}>Usually filled at: {m.usualSupplier}</div>}
@@ -548,6 +573,35 @@ function SelectRow({ label, value, onChange, options, T }) {
   );
 }
 
+// ADDED 19 Aug 2026 — real gap: Category, matching Notion's Medicines
+// Registry exactly (multi-select — a medication can genuinely be more
+// than one category). Same tap-to-toggle chip pattern already used
+// elsewhere in this app (Clinic Visits' Reason for visit, etc.), built
+// fresh here since this module never needed a multi-select field
+// before now.
+function MultiSelectRow({ label, value, onChange, options, T }) {
+  const toggle = (opt) => {
+    const has = value.includes(opt);
+    onChange(has ? value.filter((v) => v !== opt) : [...value, opt]);
+  };
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 13, color: T.textPrimary, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {options.map((opt) => {
+          const active = value.includes(opt);
+          return (
+            <div key={opt} onClick={() => toggle(opt)}
+              style={{ padding: "5px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, cursor: "pointer", border: `1px solid ${active ? T.medsBlue : T.border}`, color: active ? T.medsBlue : T.textSecondary, background: active ? `${T.medsBlue}15` : "transparent" }}>
+              {opt}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ADDED 19 Aug 2026 — real fix, Kane's ask: dose strength used to be
 // one free-text field ("245mg", easy to typo the unit). Number + a
 // real dropdown (see DOSE_UNIT_OPTIONS) instead — µg renders correctly
@@ -570,6 +624,10 @@ function DoseStrengthField({ value, unit, onChangeValue, onChangeUnit, T }) {
 }
 
 function MedicationEditSheet({ med, onSave, onClose, T }) {
+  // ADDED 19 Aug 2026 — real in-app editable option lists.
+  const medicationTypeOptions = useMemo(() => CustomOptionListsRepository.get("medicationType"), []);
+  const routeOptions = useMemo(() => CustomOptionListsRepository.get("route"), []);
+  const categoryOptions = useMemo(() => CustomOptionListsRepository.get("medicationCategory"), []);
   const [form, setForm] = useState({
     name: med.name, route: med.route || "", medicationType: med.medicationType || "",
     doseStrengthValue: med.doseStrengthValue || "", doseStrengthUnit: med.doseStrengthUnit || "",
@@ -610,23 +668,28 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
 
         {/* REORDERED 19 Aug 2026 — same reasoning as Add medication:
             identity facts before dosing mechanics. */}
-        <SelectRow T={T} label="Medication type" value={form.medicationType} onChange={set("medicationType")} options={MEDICATION_TYPE_OPTIONS} />
+        <SelectRow T={T} label="Medication type" value={form.medicationType} onChange={set("medicationType")} options={medicationTypeOptions} />
+        <MultiSelectRow T={T} label="Category" value={form.category} onChange={set("category")} options={categoryOptions} />
         <DoseStrengthField T={T} value={form.doseStrengthValue} unit={form.doseStrengthUnit} onChangeValue={set("doseStrengthValue")} onChangeUnit={set("doseStrengthUnit")} />
-        <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={ROUTE_OPTIONS} />
+        <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={routeOptions} />
 
+        {/* CHANGED 19 Aug 2026 — real custom-scheduling support: Custom
+            is now a genuine, reachable third option, not just a stubbed
+            seed-data value with no way in. "Every N days" only, per
+            Kane's explicit scope call — no day-of-week complexity. */}
         <div style={{ display: "flex", background: T.surfaceVariant, borderRadius: radius.full, padding: 3, marginBottom: 12 }}>
-          {["daily", "prn"].map((p) => (
+          {["daily", "custom", "prn"].map((p) => (
             <div key={p} onClick={() => set("usagePattern")(p)} style={{ flex: 1, textAlign: "center", padding: "6px 0", borderRadius: radius.full, cursor: "pointer", fontSize: 13, fontWeight: 600, background: form.usagePattern === p ? T.surface : "transparent", color: form.usagePattern === p ? T.medsBlue : T.textSecondary }}>
-              {p === "daily" ? "Daily" : "PRN"}
+              {p === "daily" ? "Daily" : p === "custom" ? "Custom" : "PRN"}
             </div>
           ))}
         </div>
-        {med.usagePattern === "custom" && form.usagePattern !== "custom" && (
-          <div style={{ fontSize: 11, color: T.textDisabled, marginBottom: 10, fontStyle: "italic" }}>Custom Schedule isn't editable here yet — no schedule-builder UI exists. Switching away from it is one-way for now.</div>
+        {form.usagePattern === "custom" && (
+          <NumberField T={T} label="Every how many days?" value={form.scheduleIntervalDays} onChange={set("scheduleIntervalDays")} min={2} />
         )}
 
         <ToggleRow T={T} label="Inventory tracked" value={form.inventoryTracked} onChange={set("inventoryTracked")} />
-        {form.usagePattern !== "prn" && <NumberField T={T} label="Doses per day" value={form.dosesPerDay} onChange={set("dosesPerDay")} min={1} />}
+        {form.usagePattern === "daily" && <NumberField T={T} label="Doses per day" value={form.dosesPerDay} onChange={set("dosesPerDay")} min={1} />}
         <NumberField T={T} label={`Units per dose (${med.unit}s)`} value={form.unitsPerDose} onChange={set("unitsPerDose")} min={1} />
         {form.inventoryTracked && (
           <>
@@ -655,6 +718,9 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
 // handler before. Daily/PRN only for now — Custom Schedule exists in the data model (Doc 5 §5)
 // but there's no schedule-builder UI yet, so it's not offered here rather than half-supported. ──
 function AddMedicationSheet({ onCreate, onClose, T }) {
+  const medicationTypeOptions = useMemo(() => CustomOptionListsRepository.get("medicationType"), []);
+  const routeOptions = useMemo(() => CustomOptionListsRepository.get("route"), []);
+  const categoryOptions = useMemo(() => CustomOptionListsRepository.get("medicationCategory"), []);
   const [form, setForm] = useState({
     name: "", route: "", medicationType: "", doseStrengthValue: "", doseStrengthUnit: "",
     usagePattern: "daily", unitsPerDose: 1, dosesPerDay: 1,
@@ -687,20 +753,24 @@ function AddMedicationSheet({ onCreate, onClose, T }) {
         {/* REORDERED 19 Aug 2026 — identity facts right after the name:
             what it is, how strong, how taken — before the dosing-
             pattern/inventory mechanics below. */}
-        <SelectRow T={T} label="Medication type" value={form.medicationType} onChange={set("medicationType")} options={MEDICATION_TYPE_OPTIONS} />
+        <SelectRow T={T} label="Medication type" value={form.medicationType} onChange={set("medicationType")} options={medicationTypeOptions} />
+        <MultiSelectRow T={T} label="Category" value={form.category} onChange={set("category")} options={categoryOptions} />
         <DoseStrengthField T={T} value={form.doseStrengthValue} unit={form.doseStrengthUnit} onChangeValue={set("doseStrengthValue")} onChangeUnit={set("doseStrengthUnit")} />
-        <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={ROUTE_OPTIONS} />
+        <SelectRow T={T} label="Route" value={form.route} onChange={set("route")} options={routeOptions} />
 
         <div style={{ display: "flex", background: T.surfaceVariant, borderRadius: radius.full, padding: 3, marginBottom: 12 }}>
-          {["daily", "prn"].map((p) => (
+          {["daily", "custom", "prn"].map((p) => (
             <div key={p} onClick={() => set("usagePattern")(p)} style={{ flex: 1, textAlign: "center", padding: "6px 0", borderRadius: radius.full, cursor: "pointer", fontSize: 13, fontWeight: 600, background: form.usagePattern === p ? T.surface : "transparent", color: form.usagePattern === p ? T.medsBlue : T.textSecondary }}>
-              {p === "daily" ? "Daily" : "PRN"}
+              {p === "daily" ? "Daily" : p === "custom" ? "Custom" : "PRN"}
             </div>
           ))}
         </div>
+        {form.usagePattern === "custom" && (
+          <NumberField T={T} label="Every how many days?" value={form.scheduleIntervalDays} onChange={set("scheduleIntervalDays")} min={2} />
+        )}
 
         <ToggleRow T={T} label="Inventory tracked" value={form.inventoryTracked} onChange={set("inventoryTracked")} />
-        {form.usagePattern !== "prn" && <NumberField T={T} label="Doses per day" value={form.dosesPerDay} onChange={set("dosesPerDay")} min={1} />}
+        {form.usagePattern === "daily" && <NumberField T={T} label="Doses per day" value={form.dosesPerDay} onChange={set("dosesPerDay")} min={1} />}
         <NumberField T={T} label="Units per dose" value={form.unitsPerDose} onChange={set("unitsPerDose")} min={1} />
         {form.inventoryTracked && (
           <>
@@ -746,6 +816,11 @@ function DoseReminderBanner({ med, onTake, onSnooze, onSkip, T }) {
 
 export default function MedicationDashboard({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [meds, setMeds] = useState(() => loadMedications());
+  // ADDED 19 Aug 2026 — real undo/redo for editing a medication's own
+  // record (name/dose/route/etc.) — see editUndoHelpers.js. Separate
+  // from the dose-log undo/redo just below (lastLoggedEntry/
+  // redoAvailable), which covers a different action entirely.
+  const editUndo = useEditUndo(MedicationRepository);
   // ADDED 19 Aug 2026 — read once on mount, same pattern as every other
   // module's read-only cross-repository reference (e.g. Contacts'
   // Timeline reading EncounterRepository). Allergies is edited on My
@@ -775,7 +850,10 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
   // ADDED 18 Aug 2026 — same "keep it visible, flash instead of nothing"
   // fix as the individual card, applied to the bulk button.
   const [bulkLockFlash, setBulkLockFlash] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  // CHANGED 19 Aug 2026 — now uses the real shared hook
+  // (darkModePreference.js) instead of duplicating this logic
+  // in-module — same behavior, now genuinely reusable.
+  const [darkMode, setDarkMode] = useDarkModePreference();
   const [highlightedId, setHighlightedId] = useState(null);
   const [tab, setTab] = useState("Registry");
   const [menuOpenId, setMenuOpenId] = useState(null);
@@ -790,11 +868,26 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
   // spotted later). Tracks the single most-recently-logged entry only;
   // tapping a DIFFERENT medication's log button clears this, so undo
   // only ever targets the actual last action, never something stale.
+  //
+  // CHANGED 19 Aug 2026 — real Redo added, the counterpart to Undo.
+  // Kane's explicit scope call: this stays scoped to THIS module/page
+  // only — reversing the one void that just happened, not a cross-app
+  // action history. `redoAvailable` tracks whether the entry we just
+  // voided can still be un-voided (cleared the moment anything else
+  // happens to that entry, so Redo never targets something stale).
   const [lastLoggedEntry, setLastLoggedEntry] = useState(null);
+  const [redoAvailable, setRedoAvailable] = useState(null);
   const undoLastLog = () => {
     if (!lastLoggedEntry) return;
     LogRepository.void(lastLoggedEntry.id);
+    setRedoAvailable(lastLoggedEntry.id);
     setLastLoggedEntry(null);
+    refreshMeds();
+  };
+  const redoLastUndo = () => {
+    if (!redoAvailable) return;
+    LogRepository.unvoid(redoAvailable);
+    setRedoAvailable(null);
     refreshMeds();
   };
   const logDose = (id) => {
@@ -802,6 +895,7 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
     if (!med) return;
     const entry = LogRepository.create({ medicationId: id, type: "dose", delta: -med.unitsPerDose, date: new Date().toISOString() });
     setLastLoggedEntry(entry);
+    setRedoAvailable(null);
     setTimeout(() => setLastLoggedEntry((current) => (current?.id === entry.id ? null : current)), 8000);
     refreshMeds();
   };
@@ -850,7 +944,14 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
     setCorrection(null);
   };
   const saveMedication = (form) => {
+    // ADDED 19 Aug 2026 — real undo/redo extension: Medication's dose-
+    // LOG undo/redo already existed (LogRepository.unvoid), this is
+    // the separate, previously-missing piece — undo/redo for editing
+    // the medication RECORD itself (renaming it, changing its dose),
+    // same shared mechanism as Encounters/Contacts.
+    editUndo.captureBeforeEdit(editingMed.id);
     MedicationRepository.update(editingMed.id, form);
+    editUndo.notifyEdited(editingMed.id);
     refreshMeds();
     setEditingMed(null);
   };
@@ -956,7 +1057,7 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 16px 12px" }}>
           <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Medication</span>
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-            <div onClick={() => setDarkMode((d) => !d)} style={{ cursor: "pointer" }}>{darkMode ? <Sun size={20} color={T.textSecondary} /> : <Moon size={20} color={T.textSecondary} />}</div>
+            <div onClick={() => setDarkMode((d) => !d)} style={{ cursor: "pointer" }} title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>{darkMode ? <Sun size={20} color={T.textSecondary} /> : <Moon size={20} color={T.textSecondary} />}</div>
             <Search size={20} color={T.textSecondary} />
             {/* Settings moved here per Kane's ask — canonical home is Home's top bar (shown here too since
                 that's the only screen built). Same honesty note as Search: no handler yet, visual only. */}
@@ -985,6 +1086,29 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
           <div onClick={undoLastLog}
             style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 358, background: T.textPrimary, color: T.bg, borderRadius: radius.full, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <Check size={14} /> Dose logged — tap to undo
+          </div>
+        )}
+        {/* ADDED 19 Aug 2026 — real Redo: appears right after an Undo,
+            scoped to Medication only per Kane's explicit call ("undo
+            redo should apply only within that module/page"). Cleared
+            the moment a new dose is logged (see logDose above), so
+            Redo never targets something stale. */}
+        {!lastLoggedEntry && redoAvailable && (
+          <div onClick={redoLastUndo}
+            style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 358, background: T.medsBlue, color: "#FFFFFF", borderRadius: radius.full, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <RefreshCcw size={14} /> Undone — tap to redo
+          </div>
+        )}
+
+        {/* ADDED 19 Aug 2026 — real undo/redo for editing the
+            medication RECORD (not a dose log) — separate action, only
+            shown when there's no dose-log toast currently competing
+            for the same screen space. */}
+        {!lastLoggedEntry && !redoAvailable && editUndo.toast && (
+          <div onClick={editUndo.toast.mode === "undo" ? editUndo.undo : editUndo.redo}
+            style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 358, background: editUndo.toast.mode === "undo" ? "#1B1B1F" : T.medsBlue, color: "#FFFFFF", borderRadius: radius.full, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            {editUndo.toast.mode === "undo" ? <Check size={14} /> : <RefreshCcw size={14} />}
+            {editUndo.toast.mode === "undo" ? "Medication updated — tap to undo" : "Undone — tap to redo"}
           </div>
         )}
 
@@ -1024,7 +1148,7 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "0 16px 100px" }}>
               {activeMeds.map((med, idx) => (
-                <MedicationCard key={med.id} med={med} T={T} justCompleted={justCompleted?.id === med.id ? justCompleted.type : null} highlighted={highlightedId === med.id}
+                <MedicationCard key={med.id} med={med} T={T} darkMode={darkMode} justCompleted={justCompleted?.id === med.id ? justCompleted.type : null} highlighted={highlightedId === med.id}
                   cardRef={(el) => (cardRefs.current[med.id] = el)}
                   menuOpen={menuOpenId === med.id}
                   snoozedUntil={snoozedUntil[med.id]}

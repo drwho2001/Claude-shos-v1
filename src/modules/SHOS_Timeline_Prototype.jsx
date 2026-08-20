@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { Plus, ChevronLeft, Check, AlertTriangle } from "lucide-react";
-import { EpisodeRepository, TRIGGER_REASON_OPTIONS, RESOLUTION_OPTIONS } from "../repositories/episodeRepository";
+import { EpisodeRepository, RESOLUTION_OPTIONS } from "../repositories/episodeRepository";
+// ADDED 19 Aug 2026 — TRIGGER_REASON_OPTIONS now lives here, real
+// in-app editable option list.
+import { CustomOptionListsRepository } from "../repositories/customOptionListsRepository";
 import { EncounterRepository } from "../repositories/encounterRepository";
 import { TestingRepository } from "../repositories/testingRepository";
 import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
@@ -142,6 +145,7 @@ function StartSheet({ onSave, onClose, T }) {
   const [title, setTitle] = useState("");
   const [triggerReason, setTriggerReason] = useState("");
   const [startEncounterId, setStartEncounterId] = useState("");
+  const triggerReasonOptions = useMemo(() => CustomOptionListsRepository.get("episodeTriggerReason"), []);
   const encounters = useMemo(() => EncounterRepository.getAll().sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).map((e) => ({ id: e.id, name: encounterLabel(e) })), []);
   const canSave = title.trim().length > 0 && startEncounterId;
 
@@ -153,7 +157,7 @@ function StartSheet({ onSave, onClose, T }) {
         </div>
         <div style={{ overflowY: "auto", padding: "0 20px", flex: 1 }}>
           <TextField label="Title" value={title} onChange={setTitle} T={T} placeholder="e.g. Chlamydia exposure, Aug 2026" />
-          <SelectField label="Why this started" value={triggerReason} onChange={setTriggerReason} options={TRIGGER_REASON_OPTIONS} T={T} />
+          <SelectField label="Why this started" value={triggerReason} onChange={setTriggerReason} options={triggerReasonOptions} T={T} />
           <SingleEncounterSelect value={startEncounterId} onChange={setStartEncounterId} T={T} items={encounters} />
         </div>
         <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>

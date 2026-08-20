@@ -13,7 +13,8 @@ import React, { useState, useMemo, useEffect } from "react";
 // ADDED 19 Aug 2026 — draft autosave, real fix for in-progress edits
 // being lost on refresh. See draftStorage.js for the full reasoning.
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
-import { Plus, ChevronLeft, MoreVertical, X, Archive, Users, MapPin, Heart } from "lucide-react";
+import { Plus, ChevronLeft, MoreVertical, X, Archive, Users, MapPin, Heart, Check, RefreshCcw } from "lucide-react";
+import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
   EncounterRepository, DEFAULT_ENCOUNTER,
   ENCOUNTER_TYPE_OPTIONS, MY_POSITION_OPTIONS, CUM_LOCATION_OPTIONS, MY_ROLE_OPTIONS,
@@ -588,7 +589,7 @@ function ActivityDetails({ T, encounterId, onBack, onEdit }) {
 }
 
 // ── Add/Edit sheet ──
-function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
+function EncounterEditSheet({ T, encounterId, onClose, onSaved, onBeforeEdit, onAfterEdit }) {
   const isNew = !encounterId;
   const [contacts] = useState(loadContacts);
   // ADDED 19 Aug 2026 — draft autosave, same pattern/reasoning as
@@ -608,8 +609,16 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
 
   const save = () => {
     clearDraft(draftKey);
-    if (isNew) EncounterRepository.create(form);
-    else EncounterRepository.update(encounterId, form);
+    if (isNew) {
+      EncounterRepository.create(form);
+    } else {
+      // ADDED 19 Aug 2026 — real undo/redo: snapshot taken right
+      // before the update actually happens, so undo has the genuine
+      // pre-edit state to restore, not a guess.
+      onBeforeEdit?.(encounterId);
+      EncounterRepository.update(encounterId, form);
+      onAfterEdit?.(encounterId);
+    }
     onSaved();
   };
 
@@ -686,8 +695,27 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved }) {
 
 // ── Top-level module component — same shape as the Contacts/Medication
 // top-level components, so App.jsx's switcher can drop this in directly. ──
+// ADDED 19 Aug 2026 — real ask, Kane's own example (edit an Encounter,
+// realise it was wrong, want undo/redo): shared toast, same visual
+// pattern as Medication's own undo/redo toast, kept consistent rather
+// than inventing a new look for the same idea.
+function EditUndoToast({ toast, onUndo, onRedo, T }) {
+  if (!toast) return null;
+  const isUndo = toast.mode === "undo";
+  return (
+    <div onClick={isUndo ? onUndo : onRedo}
+      style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 340, background: isUndo ? "#1B1B1F" : T.encountersPink, color: "#FFFFFF", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+      {isUndo ? <Check size={14} /> : <RefreshCcw size={14} />}
+      {isUndo ? "Encounter updated — tap to undo" : "Undone — tap to redo"}
+    </div>
+  );
+}
+
 export default function EncountersModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [screen, setScreen] = useState({ name: "landing" });
+  // ADDED 19 Aug 2026 — see editUndoHelpers.js for the full reasoning.
+  // One hook instance per module, per Kane's explicit scoping rule.
+  const editUndo = useEditUndo(EncounterRepository);
 
   // ADDED 19 Aug 2026 — same Dashboard quick-add pattern as Contacts;
   // see that file for the fuller reasoning on why mount-only is enough.
@@ -727,13 +755,16 @@ export default function EncountersModule({ openAddOnMount = false, onConsumedQui
     screenContent = (
       <EncounterEditSheet T={LIGHT} encounterId={screen.id}
         onClose={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
-        onSaved={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })} />
+        onSaved={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
+        onBeforeEdit={editUndo.captureBeforeEdit}
+        onAfterEdit={editUndo.notifyEdited} />
     );
   }
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`}</style>
+      <EditUndoToast toast={editUndo.toast} onUndo={editUndo.undo} onRedo={editUndo.redo} T={LIGHT} />
       {screenContent}
     </div>
   );

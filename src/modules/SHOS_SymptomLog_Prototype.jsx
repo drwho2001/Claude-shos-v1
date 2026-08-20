@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Plus, ChevronLeft, Check, Archive, ArchiveRestore } from "lucide-react";
+import { Plus, ChevronLeft, Check, Archive, ArchiveRestore, RefreshCcw } from "lucide-react";
 import { SymptomLogRepository, DEFAULT_SYMPTOM_ENTRY, SEVERITY_OPTIONS } from "../repositories/symptomLogRepository";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
 import { EncounterRepository } from "../repositories/encounterRepository";
 import { TestingRepository } from "../repositories/testingRepository";
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
+import { useEditUndo } from "../calculations/editUndoHelpers";
 
 // ADDED 19 Aug 2026 — Symptom Log (Symptoms Tracker in Notion — see
 // symptomLogRepository.js's header for the deliberate naming decision
@@ -275,6 +276,8 @@ function SymptomLogLanding({ onOpen, onAdd, T }) {
 
 export default function SymptomLogModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
   const [screen, setScreen] = useState({ name: "list" });
+  // ADDED 19 Aug 2026 — real undo/redo extension.
+  const editUndo = useEditUndo(SymptomLogRepository);
 
   useEffect(() => {
     if (openAddOnMount) {
@@ -286,7 +289,12 @@ export default function SymptomLogModule({ openAddOnMount = false, onConsumedQui
 
   const backToList = () => setScreen({ name: "list" });
   const createEntry = (data) => { SymptomLogRepository.create(data); backToList(); };
-  const saveEntry = (data) => { SymptomLogRepository.update(screen.id, data); setScreen({ name: "detail", id: screen.id }); };
+  const saveEntry = (data) => {
+    editUndo.captureBeforeEdit(screen.id);
+    SymptomLogRepository.update(screen.id, data);
+    editUndo.notifyEdited(screen.id);
+    setScreen({ name: "detail", id: screen.id });
+  };
 
   let content;
   if (screen.name === "list") content = <SymptomLogLanding T={LIGHT} onOpen={(id) => setScreen({ name: "detail", id })} onAdd={() => setScreen({ name: "add" })} />;
@@ -295,6 +303,15 @@ export default function SymptomLogModule({ openAddOnMount = false, onConsumedQui
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: LIGHT.bg, minHeight: "100vh" }}>
       <style>{FONT_IMPORT}</style>
+      {/* ADDED 19 Aug 2026 — real undo/redo toast, same pattern as
+          every other module. */}
+      {editUndo.toast && (
+        <div onClick={editUndo.toast.mode === "undo" ? editUndo.undo : editUndo.redo}
+          style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 340, background: editUndo.toast.mode === "undo" ? "#1B1B1F" : LIGHT.healthcareBlue, color: "#FFFFFF", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {editUndo.toast.mode === "undo" ? <Check size={14} /> : <RefreshCcw size={14} />}
+          {editUndo.toast.mode === "undo" ? "Entry updated — tap to undo" : "Undone — tap to redo"}
+        </div>
+      )}
       {content}
       {screen.name === "add" && <EntrySheet T={LIGHT} entry={null} onSave={createEntry} onClose={backToList} />}
       {screen.name === "edit" && <EntrySheet T={LIGHT} entry={SymptomLogRepository.getById(screen.id)} onSave={saveEntry} onClose={() => setScreen({ name: "detail", id: screen.id })} />}

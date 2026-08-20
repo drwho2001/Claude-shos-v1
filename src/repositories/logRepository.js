@@ -173,6 +173,14 @@ export const LogRepository = {
     return this.update(id, { voided: true });
   },
 
+  // ADDED 19 Aug 2026 — real ask: Redo, the counterpart to Undo. Kane's
+  // explicit scope call: undo/redo should apply only within the module/
+  // page it happened on, not as a cross-module action history — this
+  // stays exactly that: reversing one specific void, nothing more.
+  unvoid(id) {
+    return this.update(id, { voided: false });
+  },
+
   // Wholesale replace — used only by backup restore. See ContactRepository
   // for the same pattern and reasoning.
   replaceAll(newLogs) {

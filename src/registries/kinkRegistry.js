@@ -54,4 +54,9 @@ export function resolveKinkSynonym(name) {
 // Deliberately a small, generic set (not per-kink-specific labels) so
 // it stays meaningful across different kinks without the list growing
 // unbounded — expand later if a real need for a specific kink surfaces.
-export const KINK_ROLE_OPTIONS = ["Top", "Bottom", "Vers"];
+// CHANGED 19 Aug 2026 — real ask: same house style as Dom/sub — the
+// dominant/giving-coded term capitalized, the submissive/receiving-
+// coded term lowercase. "Vers" stays as-is (neither pole). Confirmed
+// via project-wide grep first: nothing checks the exact "Bottom"
+// string, so this is a safe, isolated fix.
+export const KINK_ROLE_OPTIONS = ["Top", "bottom", "Vers"];

@@ -6,7 +6,7 @@ import TestingModule from "./modules/SHOS_Testing_Prototype";
 import ClinicVisitsModule from "./modules/SHOS_ClinicVisits_Prototype";
 import SymptomLogModule from "./modules/SHOS_SymptomLog_Prototype";
 import VaccinationsModule from "./modules/SHOS_Vaccinations_Prototype";
-import { exportBackup, importBackupFromFile, EXPORT_GROUPS } from "./storage/backupService";
+import { exportBackup, importBackupFromFile, EXPORT_GROUPS, getLastBackupInfo } from "./storage/backupService";
 import { localStorageAdapter } from "./storage/storageAdapter";
 import { ContactRepository } from "./repositories/contactRepository";
 import { EncounterRepository } from "./repositories/encounterRepository";
@@ -30,9 +30,13 @@ import ClinicCardScreen from "./modules/SHOS_ClinicCard_Prototype";
 import AttachmentsScreen from "./modules/SHOS_Attachments_Prototype";
 import TimelineModule from "./modules/SHOS_Timeline_Prototype";
 import RegistryManagementScreen from "./modules/SHOS_RegistryManagement_Prototype";
+import OptionListsScreen from "./modules/SHOS_OptionListEditor_Prototype";
+import { PrivacySettingsRepository } from "./repositories/privacySettingsRepository";
+import { AppPreferencesRepository } from "./repositories/appPreferencesRepository";
+import { CustomOptionListsRepository } from "./repositories/customOptionListsRepository";
 import { computeKinkUsage, computeChemsUsage, computeProtectionUsage, computeSymptomsUsage, computeOrganismUsage, computeResultsUsage } from "./calculations/registryUsage";
 import { formatRelativeDate } from "./calculations/encounterCalculations";
-import { Home, Users, Activity, Pill, HeartPulse, Download, Upload, ChevronRight, Settings as SettingsIcon, ChevronLeft, User, Search, Database, Trash2, AlertTriangle, Check, ClipboardList, ListTree, Paperclip, History } from "lucide-react";
+import { Home, Users, Activity, Pill, HeartPulse, Download, Upload, ChevronRight, Settings as SettingsIcon, ChevronLeft, User, Search, Database, Trash2, AlertTriangle, Check, ClipboardList, ListTree, Paperclip, History, EyeOff, Eye, TestTube, Flame, Shield, Stethoscope, Microscope, ClipboardCheck } from "lucide-react";
 
 // CHANGED 18 Aug 2026 — real persistent bottom nav, replacing the old
 // top switcher. Per Doc 1 (Master Navigation Map v1.0): five tabs —
@@ -171,6 +175,10 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
   const [showTimeline, setShowTimeline] = useState(false);
   // ADDED 19 Aug 2026 — next scheduled clinic visit, real data.
   const [nextVisit, setNextVisit] = useState(null);
+  // ADDED 19 Aug 2026 — real ask: a backup reminder. Read once on
+  // mount, same pattern as everything else on Home — see
+  // backupService.js's getLastBackupInfo() for how "due" is computed.
+  const [backupInfo] = useState(() => getLastBackupInfo());
 
   useEffect(() => {
     const contacts = ContactRepository.getAll().filter((c) => !c.isArchived);
@@ -268,13 +276,13 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
           {/* ADDED 19 Aug 2026 — Global Search, canonical Home placement
               per Doc 1, same treatment as the Settings gear icon right
               next to it. */}
-          <Search size={19} color="#5B5B62" style={{ cursor: "pointer" }} onClick={onOpenSearch} />
+          <Search size={19} color="#5B5B62" style={{ cursor: "pointer" }} onClick={onOpenSearch} title="Search" />
           {/* ADDED 19 Aug 2026 — My Profile access on Home too, per
               Kane's ask, alongside the existing Contacts shortcut. */}
-          <User size={19} color="#5B5B62" style={{ cursor: "pointer" }} onClick={() => setShowMyProfile(true)} />
+          <User size={19} color="#5B5B62" style={{ cursor: "pointer" }} onClick={() => setShowMyProfile(true)} title="My Profile" />
           {/* ADDED 19 Aug 2026 — canonical Settings location per Doc 1:
               "gear icon in the Top App Bar, canonically on Home." */}
-          <SettingsIcon size={20} color="#5B5B62" style={{ cursor: "pointer" }} onClick={onOpenSettings} />
+          <SettingsIcon size={20} color="#5B5B62" style={{ cursor: "pointer" }} onClick={onOpenSettings} title="Settings" />
         </div>
       </div>
 
@@ -292,31 +300,71 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
         <SummaryRow label="Next clinic visit" value={nextVisit ? `${(nextVisit.reasonForVisit || []).join("/") || nextVisit.title || "Visit"} · ${formatRelativeDate(nextVisit.date)}` : "None scheduled"} />
       </div>
 
+      {/* CHANGED 19 Aug 2026 — real tidy: was 7 visually-identical
+          buttons in one flat list with zero grouping — genuinely hard
+          to scan at a glance despite each having its own icon/color.
+          Split into two real groups matching how the rest of the app
+          is already organized: Personal (Contacts/Activity/Medication
+          — each its own bottom-nav tab) and Healthcare (the 4 sub-
+          screens living inside one Healthcare tab). Same buttons, same
+          destinations — purely a grouping fix, nothing removed. */}
       <div style={{ fontSize: 12, fontWeight: 700, color: "#5B5B62", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Quick add</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Personal</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
         <QuickAddButton icon={Users} label="New contact" color="#14B8A6" onClick={() => onQuickAdd("contacts")} />
         <QuickAddButton icon={Activity} label="New encounter" color="#E24E9C" onClick={() => onQuickAdd("activity")} />
         <QuickAddButton icon={Pill} label="Log medication" color="#3B82F6" onClick={() => onQuickAdd("medication")} />
-        <QuickAddButton icon={HeartPulse} label="Log test" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "testing")} />
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Healthcare</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* CHANGED 19 Aug 2026 — real ask: Testing had shared the same
+            generic HeartPulse icon as every other Healthcare quick-add
+            (Clinic Visit/Symptom/Vaccination), no visual distinction at
+            all despite four different destinations. Testing gets its
+            own icon; the other three stay HeartPulse — genuinely
+            appropriate generic-healthcare icons for those, not the
+            specific ambiguity that was actually flagged. */}
+        <QuickAddButton icon={TestTube} label="Log test" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "testing")} />
         <QuickAddButton icon={HeartPulse} label="New clinic visit" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "clinicVisits")} />
         <QuickAddButton icon={HeartPulse} label="Log symptom" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "symptomLog")} />
         <QuickAddButton icon={HeartPulse} label="Log vaccination" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "vaccinations")} />
       </div>
 
-      <div onClick={() => setShowClinicCard(true)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 24, padding: "12px 16px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
-        <ClipboardList size={15} color="#4A80F0" />
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>View Clinic Card</span>
+      {/* CHANGED 19 Aug 2026 — real tidy: Clinic Card and Timeline were
+          two separate full-width stacked blocks — both are simple
+          navigation shortcuts to a Workspace-tier screen (Architecture
+          Lock's own term for this exact category), genuinely the same
+          KIND of thing, so they're combined into one row instead of
+          eating two full rows of vertical space. */}
+      <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+        <div onClick={() => setShowClinicCard(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
+          <ClipboardList size={15} color="#4A80F0" />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Clinic Card</span>
+        </div>
+        <div onClick={() => setShowTimeline(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
+          <History size={15} color="#4A80F0" />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Timeline</span>
+        </div>
       </div>
 
-      {/* ADDED 19 Aug 2026 — Timeline shortcut, matching Clinic Card's
-          existing dual-entry-point pattern exactly (icon in Healthcare's
-          header, button here on Home) rather than picking one location —
-          episodes touch Encounters and Medication too, both outside
-          Healthcare entirely. */}
-      <div onClick={() => setShowTimeline(true)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, padding: "12px 16px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
-        <History size={15} color="#4A80F0" />
-        <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>View Timeline</span>
-      </div>
+      {/* ADDED 19 Aug 2026 — real ask: a backup reminder. No cloud
+          sync by design (everything stays on-device) means a real
+          backup is the only actual safety net — this makes it visible
+          rather than silently relying on Kane remembering. Tapping it
+          opens Settings, same screen Export already lives in, rather
+          than trying to export directly from Home. Kept as its own
+          full-width row, deliberately NOT folded into the shortcuts
+          row above — this is an alert, a different kind of thing from
+          a navigation shortcut, and shouldn't visually blend in with
+          them. */}
+      {backupInfo.dueForReminder && (
+        <div onClick={onOpenSettings} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8, padding: "12px 16px", borderRadius: 16, border: "1px solid #F59E0B40", background: "#FFF7ED", cursor: "pointer" }}>
+          <Database size={15} color="#B45309" />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#B45309" }}>
+            {backupInfo.lastAt ? `No backup in ${backupInfo.daysSince} days — export one` : "You've never exported a backup — do it now"}
+          </span>
+        </div>
+      )}
 
       {showMyProfile && (
         <div style={{ position: "fixed", inset: 0, zIndex: 200 }}>
@@ -498,13 +546,21 @@ function DeveloperToolsScreen({ onClose }) {
 // assignments exactly (Kink=red, Protection=Encounters pink, Chems=
 // neutral grey, Symptoms/Organism/Results=Healthcare blue), re-checked
 // directly against the doc rather than guessed at.
+// ADDED 19 Aug 2026 — real ask: "like in Notion, all options should
+// have an emoji and colour theme... clean to infer from" — an icon +
+// color per REGISTRY/CATEGORY (matching Notion's own per-database icon
+// convention), not per individual entry within a registry (a bigger,
+// separate ask — per-value icons for every single Kink/Chem/etc. entry
+// would need real UI work letting Kane pick one per entry, not done
+// here, flagged rather than silently attempted). Organism → Microscope
+// is Kane's own named example, applied literally.
 const REGISTRIES = [
-  { key: "kink", label: "Kink Registry", registry: KinkRegistry, color: "#E5484D", computeUsage: computeKinkUsage },
-  { key: "protection", label: "Protection Registry", registry: ProtectionRegistry, color: "#E24E9C", computeUsage: computeProtectionUsage },
-  { key: "chems", label: "Chems Registry", registry: ChemsRegistry, color: "#5B5B62", computeUsage: computeChemsUsage },
-  { key: "symptoms", label: "Symptoms Registry", registry: SymptomsRegistry, color: "#4A80F0", computeUsage: computeSymptomsUsage },
-  { key: "organism", label: "Organism Registry", registry: OrganismRegistry, color: "#4A80F0", computeUsage: computeOrganismUsage },
-  { key: "results", label: "Results Registry", registry: ResultsRegistry, color: "#4A80F0", computeUsage: computeResultsUsage },
+  { key: "kink", label: "Kink Registry", registry: KinkRegistry, color: "#E5484D", icon: Flame, computeUsage: computeKinkUsage },
+  { key: "protection", label: "Protection Registry", registry: ProtectionRegistry, color: "#E24E9C", icon: Shield, computeUsage: computeProtectionUsage },
+  { key: "chems", label: "Chems Registry", registry: ChemsRegistry, color: "#5B5B62", icon: Pill, computeUsage: computeChemsUsage },
+  { key: "symptoms", label: "Symptoms Registry", registry: SymptomsRegistry, color: "#4A80F0", icon: Stethoscope, computeUsage: computeSymptomsUsage },
+  { key: "organism", label: "Organism Registry", registry: OrganismRegistry, color: "#4A80F0", icon: Microscope, computeUsage: computeOrganismUsage },
+  { key: "results", label: "Results Registry", registry: ResultsRegistry, color: "#4A80F0", icon: ClipboardCheck, computeUsage: computeResultsUsage },
 ];
 
 function RegistriesScreen({ onClose }) {
@@ -523,7 +579,12 @@ function RegistriesScreen({ onClose }) {
           <div key={r.key} onClick={() => setOpenRegistry(r)}
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #DCDCE1", cursor: "pointer" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 999, background: r.color, flexShrink: 0 }} />
+              {/* CHANGED 19 Aug 2026 — plain color dot replaced with a
+                  real icon+color badge, matching every entry's own
+                  logical icon rather than an undifferentiated dot. */}
+              <div style={{ width: 28, height: 28, borderRadius: 999, background: `${r.color}1A`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <r.icon size={14} color={r.color} />
+              </div>
               <span style={{ fontSize: 14, color: "#1B1B1F", fontWeight: 500 }}>{r.label}</span>
             </div>
             <ChevronRight size={16} color="#9A9AA1" />
@@ -533,6 +594,198 @@ function RegistriesScreen({ onClose }) {
       {openRegistry && (
         <RegistryManagementScreen registry={openRegistry.registry} label={openRegistry.label} color={openRegistry.color} computeUsage={openRegistry.computeUsage} onClose={() => setOpenRegistry(null)} />
       )}
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — Privacy screen: Anonymise mode. Real, scoped ask
+// from Kane, not the earlier vague "what counts as identifiable"
+// unknown — see privacySettingsRepository.js for the full reasoning
+// and exact field-tier list.
+function PrivacyScreen({ onClose }) {
+  const [settings, setSettings] = useState(() => PrivacySettingsRepository.getSettings());
+  const [pinEntry, setPinEntry] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [settingPin, setSettingPin] = useState(false);
+  const [newPin, setNewPin] = useState("");
+
+  const refresh = () => setSettings(PrivacySettingsRepository.getSettings());
+
+  const activate = () => { PrivacySettingsRepository.activate(); refresh(); };
+  const attemptDeactivate = () => {
+    const result = PrivacySettingsRepository.deactivate(pinEntry);
+    if (result.ok) { setPinEntry(""); setPinError(""); refresh(); }
+    else setPinError(result.error);
+  };
+  const savePin = () => {
+    const trimmed = newPin.trim();
+    if (trimmed.length < 4) { setPinError("PIN should be at least 4 digits."); return; }
+    PrivacySettingsRepository.update({ anonymisePin: trimmed });
+    setNewPin(""); setSettingPin(false); setPinError("");
+    refresh();
+  };
+
+  // ADDED 19 Aug 2026 — App Lock toggle, real ask. Guarded: can't turn
+  // on without a PIN already set, since App Lock with no PIN would
+  // show a lock screen that anything (even leaving the field blank)
+  // trivially bypasses — confusing, not actually locked. Turning OFF
+  // never needs the PIN re-entered here; you're already inside
+  // Settings, which the lock screen itself already gated.
+  const toggleAppLock = () => {
+    if (!settings.appLockEnabled && !settings.anonymisePin) {
+      setPinError("Set a PIN below first, then App Lock can use it.");
+      return;
+    }
+    PrivacySettingsRepository.update({ appLockEnabled: !settings.appLockEnabled });
+    refresh();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#F0F0F3", zIndex: 220, overflowY: "auto", fontFamily: "'Public Sans', sans-serif" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 16, position: "sticky", top: 0, background: "#F0F0F3", borderBottom: "1px solid #DCDCE1" }}>
+        <ChevronLeft size={22} color="#1B1B1F" style={{ cursor: "pointer" }} onClick={onClose} />
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#1B1B1F" }}>Privacy</span>
+      </div>
+
+      <div style={{ padding: "16px" }}>
+        {/* Big, clearly separated toggle button — never on by default,
+            per Kane's explicit instruction, and always one tap to turn
+            ON regardless of any PIN. */}
+        <div onClick={settings.anonymiseModeActive ? undefined : activate}
+          style={{ padding: 18, borderRadius: 16, background: settings.anonymiseModeActive ? "#1B1B1F" : "#FFFFFF", border: `1px solid ${settings.anonymiseModeActive ? "#1B1B1F" : "#DCDCE1"}`, cursor: settings.anonymiseModeActive ? "default" : "pointer", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {settings.anonymiseModeActive ? <EyeOff size={20} color="#FFFFFF" /> : <Eye size={20} color="#1B1B1F" />}
+            <span style={{ fontSize: 15, fontWeight: 700, color: settings.anonymiseModeActive ? "#FFFFFF" : "#1B1B1F" }}>
+              {settings.anonymiseModeActive ? "Anonymise mode is ON" : "Turn on Anonymise mode"}
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: settings.anonymiseModeActive ? "#DCDCE1" : "#5B5B62", marginTop: 6 }}>
+            {settings.anonymiseModeActive
+              ? "Names, photos, addresses, and car details are hidden across Contacts."
+              : "Tap right before handing your phone over — hides names, photos, addresses, and car registration in Contacts. Never turns on by itself."}
+          </div>
+        </div>
+
+        {settings.anonymiseModeActive && (
+          <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F", marginBottom: 8 }}>
+              {settings.anonymisePin ? "Enter your PIN to turn it back off" : "Turn it back off"}
+            </div>
+            {settings.anonymisePin && (
+              <input value={pinEntry} onChange={(e) => { setPinEntry(e.target.value); setPinError(""); }} type="password" inputMode="numeric" placeholder="PIN"
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", marginBottom: 8, fontSize: 14, boxSizing: "border-box" }} />
+            )}
+            {pinError && <div style={{ fontSize: 12, color: "#E5484D", marginBottom: 8 }}>{pinError}</div>}
+            <button onClick={attemptDeactivate} style={{ width: "100%", padding: 12, borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>
+              Turn off Anonymise mode
+            </button>
+          </div>
+        )}
+
+        {/* ADDED 19 Aug 2026 — App Lock, real ask, separate from
+            Anonymise mode: gates opening the app at all, not just
+            masking fields once it's open. Biometric (Face ID/
+            fingerprint) isn't available here — needs the Capacitor
+            native wrapper's own APIs, not buildable in a browser/PWA. */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16, marginBottom: 16 }}>
+          <div onClick={toggleAppLock} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+            <div style={{ flex: 1, paddingRight: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F" }}>App Lock</div>
+              <div style={{ fontSize: 11, color: "#5B5B62", marginTop: 2 }}>Require your PIN just to open the app at all. Uses the same PIN as Anonymise mode's revert, below. Biometric unlock isn't available yet — needs the native app version.</div>
+            </div>
+            <div style={{ width: 40, height: 24, borderRadius: 999, background: settings.appLockEnabled ? "#4A80F0" : "#DCDCE1", position: "relative", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: 2, left: settings.appLockEnabled ? 18 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF" }} />
+            </div>
+          </div>
+          {/* ADDED 19 Aug 2026 — real fix while building this: without
+              this, the "set a PIN first" guard message had nowhere to
+              actually render when neither the deactivate flow nor the
+              set-PIN flow was open — Kane would tap the toggle, nothing
+              would visibly happen, and the guard would silently do
+              nothing from his side. */}
+          {pinError && !settings.anonymiseModeActive && !settingPin && (
+            <div style={{ fontSize: 12, color: "#E5484D", marginTop: 8 }}>{pinError}</div>
+          )}
+        </div>
+
+        <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16, marginBottom: 16 }}>
+          <div onClick={() => { PrivacySettingsRepository.update({ hideFurtherEnabled: !settings.hideFurtherEnabled }); refresh(); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+            <div style={{ flex: 1, paddingRight: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F" }}>Also hide kinks & physical attributes</div>
+              <div style={{ fontSize: 11, color: "#5B5B62", marginTop: 2 }}>Stated kinks, limits, length/girth, and Cummer stats — hidden in addition to the base fields above, only while Anonymise mode is on.</div>
+            </div>
+            <div style={{ width: 40, height: 24, borderRadius: 999, background: settings.hideFurtherEnabled ? "#4A80F0" : "#DCDCE1", position: "relative", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: 2, left: settings.hideFurtherEnabled ? 18 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF" }} />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F", marginBottom: 4 }}>Revert PIN</div>
+          <div style={{ fontSize: 11, color: "#5B5B62", marginBottom: 10 }}>
+            {settings.anonymisePin ? "A PIN is set — used for both Anonymise mode's revert and App Lock above." : "No PIN set yet — anyone can turn Anonymise mode back off right now, and App Lock can't be turned on. Set one so both actually protect you."}
+          </div>
+          {settingPin ? (
+            <>
+              <input value={newPin} onChange={(e) => setNewPin(e.target.value)} type="password" inputMode="numeric" placeholder="New PIN (4+ digits)"
+                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", marginBottom: 8, fontSize: 14, boxSizing: "border-box" }} />
+              {pinError && <div style={{ fontSize: 12, color: "#E5484D", marginBottom: 8 }}>{pinError}</div>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => { setSettingPin(false); setNewPin(""); setPinError(""); }} style={{ flex: 1, padding: 10, borderRadius: 999, border: "1px solid #DCDCE1", background: "transparent", color: "#5B5B62", fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                <button onClick={savePin} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Save PIN</button>
+              </div>
+            </>
+          ) : (
+            <button onClick={() => setSettingPin(true)} style={{ width: "100%", padding: 10, borderRadius: 999, border: "1px solid #4A80F0", background: "transparent", color: "#4A80F0", fontWeight: 700, cursor: "pointer" }}>
+              {settings.anonymisePin ? "Change PIN" : "Set a PIN"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — Preferences, real now. Deliberately small — one
+// real, concrete setting (Kane's own ask), not speculative toggles
+// filling out a section just because it existed. More real
+// Preferences items land here as they come up, same pattern as
+// Privacy/Registries/Option lists getting built incrementally rather
+// than all at once up front.
+function PreferencesScreen({ onClose }) {
+  const [prefs, setPrefs] = useState(() => AppPreferencesRepository.getPreferences());
+  const [draftValue, setDraftValue] = useState(() => String(prefs.inactiveThresholdDays));
+
+  const save = () => {
+    const parsed = parseInt(draftValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+    const updated = AppPreferencesRepository.update({ inactiveThresholdDays: parsed });
+    setPrefs(updated);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#F0F0F3", zIndex: 220, overflowY: "auto", fontFamily: "'Public Sans', sans-serif" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 16, position: "sticky", top: 0, background: "#F0F0F3", borderBottom: "1px solid #DCDCE1" }}>
+        <ChevronLeft size={22} color="#1B1B1F" style={{ cursor: "pointer" }} onClick={onClose} />
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#1B1B1F" }}>Preferences</span>
+      </div>
+      <div style={{ padding: 16 }}>
+        <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F", marginBottom: 4 }}>Inactive contact threshold</div>
+          <div style={{ fontSize: 11, color: "#5B5B62", marginBottom: 12 }}>
+            Days since a Contact's last Encounter before it shows the red "inactive" flag. Was fixed at 90 — now yours to set. A specific contact can also be excluded from this entirely (edit that contact → "One-off / never expect to recur").
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input value={draftValue} onChange={(e) => setDraftValue(e.target.value)} type="number" min="1"
+              style={{ width: 90, padding: "10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", fontSize: 14, boxSizing: "border-box" }} />
+            <span style={{ fontSize: 13, color: "#5B5B62" }}>days</span>
+            <button onClick={save} style={{ marginLeft: "auto", padding: "10px 18px", borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>
+              Save
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: "#9A9AA1", marginTop: 10 }}>Currently: {prefs.inactiveThresholdDays} days.</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -551,6 +804,9 @@ function SettingsScreen({ onClose, onExport, onImportClick, status }) {
   const [showSelectiveExport, setShowSelectiveExport] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
   const [showRegistries, setShowRegistries] = useState(false);
+  const [showOptionLists, setShowOptionLists] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showPreferences, setShowPreferences] = useState(false);
 
   const SettingsRow = ({ icon: Icon, label, onClick, disabled }) => (
     <div onClick={disabled ? undefined : onClick}
@@ -598,12 +854,22 @@ function SettingsScreen({ onClose, onExport, onImportClick, status }) {
         {/* ADDED 19 Aug 2026 — Registries, real per Kane's priority
             order. */}
         <SettingsRow icon={ListTree} label="Registries" onClick={() => setShowRegistries(true)} />
+        {/* ADDED 19 Aug 2026 — Option lists, the "idiot-proof editor"
+            Kane asked for, for the simpler flat-string option lists. */}
+        <SettingsRow icon={ListTree} label="Option lists" onClick={() => setShowOptionLists(true)} />
+        {/* CHANGED 19 Aug 2026 — real fix: Privacy was already real
+            (onClick worked), but had been left sitting visually under
+            "Not built yet" below since that entry was first added —
+            moved up to where it actually belongs. */}
+        <SettingsRow icon={SettingsIcon} label="Privacy" onClick={() => setShowPrivacy(true)} />
+        {/* ADDED 19 Aug 2026 — Preferences, real now: the configurable
+            inactive-contact threshold, Kane's own first concrete ask
+            for this previously fully-stubbed section. */}
+        <SettingsRow icon={SettingsIcon} label="Preferences" onClick={() => setShowPreferences(true)} />
       </div>
 
       <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, padding: "0 16px 6px" }}>Not built yet</div>
       <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, margin: "0 16px 20px", overflow: "hidden" }}>
-        <SettingsRow icon={SettingsIcon} label="Preferences" disabled />
-        <SettingsRow icon={SettingsIcon} label="Privacy" disabled />
         <SettingsRow icon={SettingsIcon} label="Appearance / theme" disabled />
       </div>
 
@@ -621,11 +887,108 @@ function SettingsScreen({ onClose, onExport, onImportClick, status }) {
       {showRegistries && (
         <RegistriesScreen onClose={() => setShowRegistries(false)} />
       )}
+      {showOptionLists && (
+        <OptionListsScreen onClose={() => setShowOptionLists(false)} />
+      )}
+      {showPrivacy && (
+        <PrivacyScreen onClose={() => setShowPrivacy(false)} />
+      )}
+      {showPreferences && (
+        <PreferencesScreen onClose={() => setShowPreferences(false)} />
+      )}
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — App Lock's own lock screen, real ask. Shown
+// instead of the normal app whenever appLockEnabled is on — gates
+// opening the app itself, distinct from Anonymise mode (which stays
+// active independently once you're past this). Never on by default;
+// reuses the same PIN as Anonymise mode's revert, per
+// privacySettingsRepository.js's own reasoning.
+function AppLockScreen({ onUnlock }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+
+  const attempt = () => {
+    if (PrivacySettingsRepository.checkAppLockPin(pin)) {
+      onUnlock();
+    } else {
+      setError("Incorrect PIN.");
+      setPin("");
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#1B1B1F", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 999, fontFamily: "'Public Sans', sans-serif" }}>
+      <Eye size={32} color="#FFFFFF" style={{ marginBottom: 16, opacity: 0.6 }} />
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#FFFFFF", marginBottom: 16 }}>Enter PIN to unlock</div>
+      <input value={pin} onChange={(e) => { setPin(e.target.value); setError(""); }} type="password" inputMode="numeric" autoFocus
+        onKeyDown={(e) => { if (e.key === "Enter") attempt(); }}
+        style={{ width: 200, padding: "12px 16px", borderRadius: 8, border: "none", fontSize: 16, textAlign: "center", marginBottom: 12, boxSizing: "border-box" }} />
+      {error && <div style={{ fontSize: 12, color: "#E5484D", marginBottom: 12 }}>{error}</div>}
+      <button onClick={attempt} style={{ padding: "10px 24px", borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>
+        Unlock
+      </button>
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — real ask: a setup prompt offering App Lock when
+// it isn't already on, shown on launch and kept reappearing on future
+// launches until "Don't ask again" is explicitly tapped — NOT the
+// same as just closing it once (X/"Not now" only dismisses THIS
+// instance, deliberately, so it can genuinely nudge again later
+// rather than vanish for good the first time someone's in a hurry).
+//
+// CRITICAL, per Kane's own explicit worry: this must NEVER block
+// access to the rest of the app. Every dismissal path (X, "Not now",
+// "Don't ask again") gets you straight into the real app immediately
+// — there's no path through this component that traps you. Tapping
+// "Set up App Lock" takes you to Settings to actually configure it,
+// rather than trying to build a PIN-setup flow inline here too.
+function AppLockPrompt({ onDismiss, onDismissForever, onOpenSettings }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "flex-end", zIndex: 998 }} onClick={onDismiss}>
+      <div style={{ background: "#FFFFFF", width: "100%", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, fontFamily: "'Public Sans', sans-serif" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <Eye size={20} color="#4A80F0" />
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#1B1B1F" }}>Want to lock the app with a PIN?</span>
+        </div>
+        <div style={{ fontSize: 12, color: "#5B5B62", marginBottom: 16, lineHeight: 1.5 }}>
+          Optional, and off by default — this just means nobody can open the app on this device without your PIN. You can turn it on any time from Settings → Privacy instead, if you'd rather decide later.
+        </div>
+        <button onClick={onOpenSettings} style={{ width: "100%", padding: 14, borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>
+          Set up App Lock
+        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onDismiss} style={{ flex: 1, padding: 12, borderRadius: 999, border: "1px solid #DCDCE1", background: "transparent", color: "#5B5B62", fontWeight: 600, cursor: "pointer" }}>
+            Not now
+          </button>
+          <button onClick={onDismissForever} style={{ flex: 1, padding: 12, borderRadius: 999, border: "1px solid #DCDCE1", background: "transparent", color: "#9A9AA1", fontWeight: 600, cursor: "pointer" }}>
+            Don't ask again
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 export default function App() {
+  // ADDED 19 Aug 2026 — App Lock: checked once on load, held in state
+  // for the session — matches how a lock screen actually behaves (you
+  // don't want it demanding the PIN again every single re-render, only
+  // on genuinely opening/reloading the app). Real ask, always optional
+  // per Kane's instruction — `locked` starts false immediately if
+  // appLockEnabled is off, so nothing changes for anyone not using it.
+  const [locked, setLocked] = useState(() => PrivacySettingsRepository.getSettings().appLockEnabled);
+  // ADDED 19 Aug 2026 — real ask: the setup prompt itself. Read once
+  // on load, same pattern as `locked` above — shows whenever App Lock
+  // isn't on AND the prompt hasn't been permanently dismissed.
+  const [showAppLockPrompt, setShowAppLockPrompt] = useState(() => {
+    const settings = PrivacySettingsRepository.getSettings();
+    return !settings.appLockEnabled && !settings.appLockPromptDismissed;
+  });
   // CHANGED 19 Aug 2026 — default tab on opening is now Home, per
   // Kane's ask. Was defaulting to Contacts (a leftover from before
   // Home existed as a real screen).
@@ -687,6 +1050,12 @@ export default function App() {
     e.target.value = "";
   };
 
+  // ADDED 19 Aug 2026 — App Lock gate: shown INSTEAD of everything
+  // else while locked, real ask.
+  if (locked) {
+    return <AppLockScreen onUnlock={() => setLocked(false)} />;
+  }
+
   return (
     <div style={{ minHeight: "100vh", background: "#F0F0F3", display: "flex", flexDirection: "column" }}>
       <input ref={fileInputRef} type="file" accept="application/json" onChange={handleFileChosen} style={{ display: "none" }} />
@@ -738,6 +1107,18 @@ export default function App() {
       )}
       {showSearch && (
         <GlobalSearchScreen onClose={() => setShowSearch(false)} onNavigate={navigateTo} />
+      )}
+      {/* ADDED 19 Aug 2026 — real ask: App Lock setup prompt. Renders
+          as an overlay ON TOP of the real, already-interactive app
+          underneath — never a full-screen replacement the way the
+          actual lock gate above is. Every dismissal path leads
+          straight back into the real app, immediately. */}
+      {showAppLockPrompt && (
+        <AppLockPrompt
+          onDismiss={() => setShowAppLockPrompt(false)}
+          onDismissForever={() => { PrivacySettingsRepository.update({ appLockPromptDismissed: true }); setShowAppLockPrompt(false); }}
+          onOpenSettings={() => { setShowAppLockPrompt(false); setShowSettings(true); }}
+        />
       )}
     </div>
   );

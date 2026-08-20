@@ -1,12 +1,18 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Plus, ChevronLeft, Check, Paperclip, Upload, Trash2, Calendar } from "lucide-react";
+import { Plus, ChevronLeft, Check, Paperclip, Upload, Trash2, Calendar, RefreshCcw } from "lucide-react";
+import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
-  ClinicVisitsRepository, DEFAULT_CLINIC_VISIT,
-  CLINICIAN_OPTIONS, REASON_FOR_VISIT_OPTIONS,
+  ClinicVisitsRepository, DEFAULT_CLINIC_VISIT, generateAdHocMedId,
+  CLINICIAN_OPTIONS,
 } from "../repositories/clinicVisitsRepository";
+// ADDED 19 Aug 2026 — REASON_FOR_VISIT_OPTIONS/FOLLOW_UP_TYPE_OPTIONS
+// now live here, real in-app editable option lists.
+import { CustomOptionListsRepository } from "../repositories/customOptionListsRepository";
 import { TestingRepository } from "../repositories/testingRepository";
 import { MedicationRepository } from "../repositories/medicationRepository";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
+import { SymptomLogRepository } from "../repositories/symptomLogRepository";
+import { VaccinationRepository } from "../repositories/vaccinationRepository";
 import { ResultsRegistry } from "../registries/resultsRegistry";
 // ADDED 19 Aug 2026 — draft autosave, same pattern as every other
 // edit sheet this round.
@@ -132,6 +138,134 @@ function RelationPicker({ label, value, onChange, T, items, placeholder }) {
   );
 }
 
+// ADDED 19 Aug 2026 — real feedback batch: "Clinician should be free
+// text, not a fixed list, and not mandatory." Free-text input with
+// tappable suggestions drawn from CLINICIAN_OPTIONS plus whatever's
+// actually been typed on past visits — same "collect real historical
+// values as suggestions" pattern already used in Contacts (getKnownValues).
+function getKnownClinicians() {
+  const typed = ClinicVisitsRepository.getAll().map((v) => v.clinician).filter(Boolean);
+  return Array.from(new Set([...CLINICIAN_OPTIONS, ...typed]));
+}
+function ClinicianField({ value, onChange, T }) {
+  const known = useMemo(() => getKnownClinicians(), []);
+  const visibleSuggestions = known.filter((c) => c !== value).slice(0, 8);
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Clinician (optional)</div>
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((c) => (
+            <div key={c} onClick={() => onChange(c)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
+              {c}
+            </div>
+          ))}
+        </div>
+      )}
+      <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Lucy — leave blank if unknown"
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — real feedback batch: "'Future appointment'
+// should read as an explicit yes/no question", not a bare toggle with
+// a one-word label that leaves what "on" means to context. Same
+// underlying boolean, just an unambiguous either/or.
+function YesNoQuestion({ question, value, onChange, T }) {
+  return (
+    <div style={{ padding: "10px 0" }}>
+      <div style={{ fontSize: 13, color: T.textPrimary, marginBottom: 6 }}>{question}</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {[{ label: "Yes", val: true }, { label: "No", val: false }].map((opt) => (
+          <div key={opt.label} onClick={() => onChange(opt.val)}
+            style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: radius.sm, cursor: "pointer", fontSize: 13, fontWeight: 700, border: `1px solid ${value === opt.val ? T.healthcareBlue : T.border}`, background: value === opt.val ? `${T.healthcareBlue}15` : "transparent", color: value === opt.val ? T.healthcareBlue : T.textSecondary }}>
+            {opt.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — real feedback batch: medications given in-clinic
+// that aren't in Kane's personal Medication tracker — a simple
+// add/remove list of free-text {name, notes} entries, distinct from
+// the registry-linked RelationPicker used for medicationsGivenIds.
+function AdHocMedicationsManager({ value, onChange, T }) {
+  const [name, setName] = useState("");
+  const [notes, setNotes] = useState("");
+  const add = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onChange([...value, { id: generateAdHocMedId(), name: trimmed, notes: notes.trim() }]);
+    setName(""); setNotes("");
+  };
+  const remove = (id) => onChange(value.filter((m) => m.id !== id));
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Other medications given (not in your Medication tracker)</div>
+      {value.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+          {value.map((m) => (
+            <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: radius.sm, background: T.surfaceVariant }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary }}>{m.name}</div>
+                {m.notes && <div style={{ fontSize: 11, color: T.textSecondary }}>{m.notes}</div>}
+              </div>
+              <X size={14} color={T.actionRed} style={{ cursor: "pointer" }} onClick={() => remove(m.id)} />
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ceftriaxone 1g IM"
+          style={{ flex: 1, padding: "8px 10px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontSize: 13 }} />
+        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)"
+          style={{ flex: 1, padding: "8px 10px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontSize: 13 }} />
+        <div onClick={add} style={{ padding: "8px 12px", borderRadius: radius.sm, background: T.healthcareBlue, color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Add</div>
+      </div>
+    </div>
+  );
+}
+
+// ADDED 19 Aug 2026 — real feedback batch: "linked tests should be
+// either pickable from existing Tests, or startable here with just a
+// name and continued properly in Testing later." Creates a real,
+// minimal Test record (title + this visit's date) via the actual
+// TestingRepository, links it immediately, same honest "switches to
+// the right module, not a deep-link to the exact record" scope limit
+// already used everywhere else cross-module linking happens in this
+// app — there's no plumbing anywhere yet for opening one specific
+// record from outside its own module.
+function StartTestInline({ visitDate, onCreated, T }) {
+  const [name, setName] = useState("");
+  const [showInput, setShowInput] = useState(false);
+  const create = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const test = TestingRepository.create({ title: trimmed, date: visitDate || new Date().toISOString() });
+    onCreated(test.id);
+    setName(""); setShowInput(false);
+  };
+  if (!showInput) {
+    return (
+      <div onClick={() => setShowInput(true)} style={{ fontSize: 11, color: T.healthcareBlue, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>
+        + Start a new test here
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Test name — continue details in Testing"
+        onKeyDown={(e) => { if (e.key === "Enter") create(); }}
+        style={{ flex: 1, padding: "8px 10px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontSize: 13 }} />
+      <div onClick={create} style={{ padding: "8px 12px", borderRadius: radius.sm, background: T.healthcareBlue, color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Start</div>
+    </div>
+  );
+}
+
 function AttachmentManager({ visitId, attachments, onChanged, T }) {
   const inputRef = useRef(null);
   const [pendingType, setPendingType] = useState("Other");
@@ -178,9 +312,12 @@ function AttachmentManager({ visitId, attachments, onChanged, T }) {
 }
 
 // ── Add/Edit sheet ──
-function VisitEditSheet({ visitId, onClose, onSaved, T }) {
+function VisitEditSheet({ visitId, onClose, onSaved, onBeforeEdit, onAfterEdit, T }) {
   const isNew = !visitId;
   const existing = visitId ? ClinicVisitsRepository.getById(visitId) : null;
+  // ADDED 19 Aug 2026 — real in-app editable option lists.
+  const reasonForVisitOptions = useMemo(() => CustomOptionListsRepository.get("reasonForVisit"), []);
+  const followUpTypeOptions = useMemo(() => CustomOptionListsRepository.get("followUpType"), []);
   // ADDED 19 Aug 2026 — draft autosave.
   const draftKey = `visitEdit_${visitId || "new"}`;
   const [form, setForm] = useState(() => {
@@ -189,6 +326,7 @@ function VisitEditSheet({ visitId, onClose, onSaved, T }) {
     return existing || { ...DEFAULT_CLINIC_VISIT };
   });
   const [draftRestored] = useState(() => !!loadDraft(draftKey));
+  const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
     saveDraft(draftKey, form);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,10 +334,21 @@ function VisitEditSheet({ visitId, onClose, onSaved, T }) {
   const set = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
   const canSave = form.title.trim().length > 0;
 
-  const allTests = useMemo(() => TestingRepository.getAll().filter((t) => !t.isArchived).map((t) => ({ id: t.id, name: t.title || "Untitled test" })), []);
+  const allTests = useMemo(() => TestingRepository.getAll().filter((t) => !t.isArchived).map((t) => ({ id: t.id, name: t.title || "Untitled test" })), [refreshKey]);
   const allMeds = useMemo(() => MedicationRepository.getAll().filter((m) => !m.isArchived).map((m) => ({ id: m.id, name: m.name })), []);
   const allSymptoms = useMemo(() => SymptomsRegistry.getAll().filter((s) => !s.isArchived), []);
-  const allResults = useMemo(() => ResultsRegistry.getAll().filter((r) => !r.isArchived), []);
+  // ADDED 19 Aug 2026 — real feedback batch: "pulling from recent"
+  // symptoms means suggesting real Symptom Log occurrences, not just
+  // the vocabulary. Recent-first ordering.
+  const allSymptomLogEntries = useMemo(
+    () => SymptomLogRepository.getAll().filter((s) => !s.isArchived).sort((a, b) => new Date(b.dateStarted || 0) - new Date(a.dateStarted || 0))
+      .map((s) => ({ id: s.id, name: `${s.title || "Symptom entry"} · ${formatDate(s.dateStarted)}` })),
+    []
+  );
+  const allVaccinations = useMemo(
+    () => VaccinationRepository.getAll().filter((v) => !v.isArchived).map((v) => ({ id: v.id, name: `${v.title || v.vaccine || "Vaccination"} · ${formatDate(v.date)}` })),
+    []
+  );
 
   const save = () => {
     clearDraft(draftKey);
@@ -217,7 +366,11 @@ function VisitEditSheet({ visitId, onClose, onSaved, T }) {
       onSaved(created.id);
     } else {
       const before = ClinicVisitsRepository.getById(visitId);
+      // ADDED 19 Aug 2026 — real undo/redo extension, same shared
+      // mechanism as every other module.
+      onBeforeEdit?.(visitId);
       ClinicVisitsRepository.update(visitId, form);
+      onAfterEdit?.(visitId);
       // Sync the two-way link for any tests added/removed this edit.
       const added = form.linkedTestIds.filter((id) => !before.linkedTestIds.includes(id));
       const removed = before.linkedTestIds.filter((id) => !form.linkedTestIds.includes(id));
@@ -256,26 +409,93 @@ function VisitEditSheet({ visitId, onClose, onSaved, T }) {
         <SectionCard title="Overview" T={T}>
           <TextField label="Title" value={form.title} onChange={set("title")} T={T} placeholder="e.g. Routine screening" />
           <TextField label="Date" value={form.date ? form.date.slice(0, 10) : ""} onChange={(v) => set("date")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
-          <SelectField label="Clinician" value={form.clinician} onChange={set("clinician")} options={CLINICIAN_OPTIONS} T={T} />
-          <MultiSelectChips label="Reason for visit" value={form.reasonForVisit} onChange={set("reasonForVisit")} options={REASON_FOR_VISIT_OPTIONS} T={T} />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
-            <span style={{ fontSize: 13, color: T.textPrimary }}>Future appointment</span>
-            <ToggleSwitch T={T} value={form.isFutureAppointment} onChange={set("isFutureAppointment")} />
-          </div>
-          <TextField label="Next review date" value={form.nextReviewDate ? form.nextReviewDate.slice(0, 10) : ""} onChange={(v) => set("nextReviewDate")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
+          {/* CHANGED 19 Aug 2026 — real feedback batch: free text, not
+              a fixed list, and not mandatory (no validation ever
+              required it — this was already true, just now also
+              genuinely free-text). */}
+          <ClinicianField value={form.clinician} onChange={set("clinician")} T={T} />
+          <MultiSelectChips label="Reason for visit" value={form.reasonForVisit} onChange={set("reasonForVisit")} options={reasonForVisitOptions} T={T} />
+          {/* CHANGED 19 Aug 2026 — explicit yes/no question, not a
+              bare toggle. */}
+          <YesNoQuestion question="Is this a future appointment?" value={form.isFutureAppointment} onChange={set("isFutureAppointment")} T={T} />
+          {/* ADDED 19 Aug 2026 — real feedback batch: "arrange
+              follow-up" — what kind, paired with the existing date
+              field for when. */}
+          <SelectField label="Arrange follow-up" value={form.followUpType} onChange={set("followUpType")} options={followUpTypeOptions} T={T} />
+          {/* ADDED 19 Aug 2026 — real ask: a small descriptor for
+              anything ambiguous/unlabelled. "TOC" is a genuine medical
+              abbreviation, not obvious without sexual-health context. */}
+          {form.followUpType === "TOC" && (
+            <div style={{ fontSize: 11, color: T.textDisabled, marginTop: -6, marginBottom: 6 }}>TOC = Test of Cure, a follow-up test confirming treatment actually worked.</div>
+          )}
+          <TextField label="Follow-up / next review date" value={form.nextReviewDate ? form.nextReviewDate.slice(0, 10) : ""} onChange={(v) => set("nextReviewDate")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
         </SectionCard>
 
         <SectionCard title="Linked records" T={T}>
           <RelationPicker label="Linked tests" value={form.linkedTestIds} onChange={set("linkedTestIds")} items={allTests} T={T} placeholder="No tests logged yet" />
-          <RelationPicker label="Medications given" value={form.medicationsGivenIds} onChange={set("medicationsGivenIds")} items={allMeds} T={T} placeholder="No medications in registry" />
-          <RelationPicker label="Symptom types" value={form.symptomTypeIds} onChange={set("symptomTypeIds")} items={allSymptoms} T={T} placeholder="No symptoms in registry" />
-          <RelationPicker label="Results" value={form.resultIds} onChange={set("resultIds")} items={allResults} T={T} placeholder="No results in registry" />
+          {/* ADDED 19 Aug 2026 — real feedback batch: start a test
+              here with just a name, continue the rest in Testing. */}
+          <StartTestInline visitDate={form.date} onCreated={(testId) => { set("linkedTestIds")([...form.linkedTestIds, testId]); setRefreshKey((k) => k + 1); }} T={T} />
+          {/* CHANGED 19 Aug 2026 — real feedback batch: each linked
+              test's own real result now shows inline, read-only —
+              this REPLACES the old standalone Results field (see
+              clinicVisitsRepository.js's header for the full
+              reasoning: results belong in Testing only, this embeds
+              rather than duplicates). */}
+          {form.linkedTestIds.length > 0 && (
+            <div style={{ marginTop: 4, marginBottom: 8 }}>
+              {form.linkedTestIds.map((id) => {
+                const t = TestingRepository.getById(id);
+                if (!t) return null;
+                const resultNames = (t.resultIds || []).map((rid) => ResultsRegistry.getById(rid)?.name).filter(Boolean);
+                if (resultNames.length === 0) return null;
+                const isPositive = resultNames.some((n) => n.toLowerCase() === "positive");
+                return (
+                  <div key={id} style={{ fontSize: 11, color: isPositive ? T.actionRed : T.textSecondary, marginBottom: 2 }}>
+                    {t.title || "Test"}: <strong>{resultNames.join(", ")}</strong>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <RelationPicker label="Medications given (from your Medication tracker)" value={form.medicationsGivenIds} onChange={set("medicationsGivenIds")} items={allMeds} T={T} placeholder="No medications in registry" />
+          <AdHocMedicationsManager value={form.adHocMedicationsGiven} onChange={set("adHocMedicationsGiven")} T={T} />
+
+          <RelationPicker label="Vaccinations given" value={form.vaccinationsGivenIds} onChange={set("vaccinationsGivenIds")} items={allVaccinations} T={T} placeholder="No vaccinations logged yet" />
+
+          <RelationPicker label="Symptom types discussed" value={form.symptomTypeIds} onChange={set("symptomTypeIds")} items={allSymptoms} T={T} placeholder="No symptoms in registry" />
+          {/* ADDED 19 Aug 2026 — real feedback batch: pull from recent
+              real Symptom Log entries, richer than the flat vocabulary
+              picker above. */}
+          <RelationPicker label="Specific symptom entries discussed" value={form.symptomsDiscussedIds} onChange={(v) => {
+            set("symptomsDiscussedIds")(v);
+            if (form.primaryReasonSymptomLogId && !v.includes(form.primaryReasonSymptomLogId)) set("primaryReasonSymptomLogId")("");
+          }} items={allSymptomLogEntries} T={T} placeholder="No symptom entries logged yet" />
+          {form.symptomsDiscussedIds.length > 0 && (
+            <div style={{ padding: "6px 0" }}>
+              <div style={{ fontSize: 11, color: T.textDisabled, marginBottom: 4 }}>Which one is why you're here? (optional)</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {form.symptomsDiscussedIds.map((id) => {
+                  const s = SymptomLogRepository.getById(id);
+                  const isPrimary = form.primaryReasonSymptomLogId === id;
+                  return (
+                    <div key={id} onClick={() => set("primaryReasonSymptomLogId")(isPrimary ? "" : id)}
+                      style={{ padding: "4px 9px", borderRadius: radius.full, fontSize: 11, fontWeight: isPrimary ? 700 : 400, cursor: "pointer", border: `1px solid ${isPrimary ? T.actionRed : T.border}`, color: isPrimary ? T.actionRed : T.textSecondary, background: isPrimary ? `${T.actionRed}12` : "transparent" }}>
+                      {s?.title || "Entry"}{isPrimary ? " ★" : ""}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="Notes" T={T}>
           <div style={{ padding: "8px 0" }}>
             <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Clinical notes</div>
             <textarea value={form.clinicalNotes} onChange={(e) => set("clinicalNotes")(e.target.value)} rows={3}
+              placeholder="e.g. Discussed PrEP adherence, no concerns raised. Advised to continue current regimen."
               style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box", resize: "vertical" }} />
           </div>
         </SectionCard>
@@ -300,10 +520,11 @@ function VisitDetail({ visitId, onBack, onEdit, onOpenTest, T }) {
   const [visit, setVisit] = useState(() => ClinicVisitsRepository.getById(visitId));
   if (!visit) return null;
 
-  const testNames = visit.linkedTestIds.map((id) => ({ id, name: TestingRepository.getById(id)?.title })).filter((t) => t.name);
+  const testEntries = visit.linkedTestIds.map((id) => TestingRepository.getById(id)).filter(Boolean);
   const medNames = visit.medicationsGivenIds.map((id) => MedicationRepository.getById(id)?.name).filter(Boolean);
   const symptomNames = visit.symptomTypeIds.map((id) => SymptomsRegistry.getById(id)?.name).filter(Boolean);
-  const resultNames = visit.resultIds.map((id) => ResultsRegistry.getById(id)?.name).filter(Boolean);
+  const symptomLogEntries = visit.symptomsDiscussedIds.map((id) => SymptomLogRepository.getById(id)).filter(Boolean);
+  const vaccinationEntries = visit.vaccinationsGivenIds.map((id) => VaccinationRepository.getById(id)).filter(Boolean);
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
@@ -323,21 +544,52 @@ function VisitDetail({ visitId, onBack, onEdit, onOpenTest, T }) {
           <ReadRow label="Clinician" value={visit.clinician} T={T} />
           <ReadRow label="Reason for visit" value={visit.reasonForVisit} T={T} />
           <ReadRow label="Future appointment" value={visit.isFutureAppointment ? "Yes" : ""} T={T} />
-          <ReadRow label="Next review" value={formatDate(visit.nextReviewDate) !== "—" ? formatDate(visit.nextReviewDate) : ""} T={T} />
+          <ReadRow label="Follow-up arranged" value={visit.followUpType && visit.followUpType !== "None" ? visit.followUpType : ""} T={T} />
+          <ReadRow label="Follow-up / next review" value={formatDate(visit.nextReviewDate) !== "—" ? formatDate(visit.nextReviewDate) : ""} T={T} />
         </SectionCard>
 
         <SectionCard title="Linked records" T={T}>
-          {testNames.length > 0 && (
+          {testEntries.length > 0 && (
             <div style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
               <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Linked tests</div>
-              {testNames.map((t) => (
-                <div key={t.id} onClick={() => onOpenTest?.(t.id)} style={{ fontSize: 13, color: T.healthcareBlue, fontWeight: 600, cursor: onOpenTest ? "pointer" : "default", marginBottom: 2 }}>{t.name}</div>
+              {testEntries.map((t) => {
+                const resultNames = (t.resultIds || []).map((rid) => ResultsRegistry.getById(rid)?.name).filter(Boolean);
+                const isPositive = resultNames.some((n) => n.toLowerCase() === "positive");
+                return (
+                  <div key={t.id} onClick={() => onOpenTest?.(t.id)} style={{ cursor: onOpenTest ? "pointer" : "default", marginBottom: 4 }}>
+                    <div style={{ fontSize: 13, color: T.healthcareBlue, fontWeight: 600 }}>{t.title || "Test"}</div>
+                    {/* CHANGED 19 Aug 2026 — embeds the linked test's OWN
+                        real result live, replacing the old standalone
+                        (and duplicative) resultIds field. */}
+                    {resultNames.length > 0 && (
+                      <div style={{ fontSize: 11, color: isPositive ? T.actionRed : T.textSecondary, fontWeight: isPositive ? 700 : 400 }}>{resultNames.join(", ")}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <ReadRow label="Medications given (tracker)" value={medNames} T={T} />
+          {visit.adHocMedicationsGiven.length > 0 && (
+            <div style={{ padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Other medications given</div>
+              {visit.adHocMedicationsGiven.map((m) => (
+                <div key={m.id} style={{ fontSize: 13, color: T.textPrimary, marginBottom: 2 }}>{m.name}{m.notes ? ` — ${m.notes}` : ""}</div>
               ))}
             </div>
           )}
-          <ReadRow label="Medications given" value={medNames} T={T} />
-          <ReadRow label="Symptom types" value={symptomNames} T={T} />
-          <ReadRow label="Results" value={resultNames} T={T} />
+          <ReadRow label="Vaccinations given" value={vaccinationEntries.map((v) => v.title || v.vaccine)} T={T} />
+          <ReadRow label="Symptom types discussed" value={symptomNames} T={T} />
+          {symptomLogEntries.length > 0 && (
+            <div style={{ padding: "7px 0" }}>
+              <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Specific symptom entries</div>
+              {symptomLogEntries.map((s) => (
+                <div key={s.id} style={{ fontSize: 13, color: visit.primaryReasonSymptomLogId === s.id ? T.actionRed : T.textPrimary, fontWeight: visit.primaryReasonSymptomLogId === s.id ? 700 : 400, marginBottom: 2 }}>
+                  {s.title}{visit.primaryReasonSymptomLogId === s.id ? " — why I'm here" : ""}
+                </div>
+              ))}
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="Notes" T={T}>
@@ -399,6 +651,8 @@ function VisitsLanding({ onOpen, onAdd, T }) {
 export default function ClinicVisitsModule({ openAddOnMount = false, onConsumedQuickAdd, onOpenTest } = {}) {
   const [screen, setScreen] = useState({ name: "landing" });
   const T = LIGHT;
+  // ADDED 19 Aug 2026 — real undo/redo extension.
+  const editUndo = useEditUndo(ClinicVisitsRepository);
 
   useEffect(() => {
     if (openAddOnMount) {
@@ -419,13 +673,24 @@ export default function ClinicVisitsModule({ openAddOnMount = false, onConsumedQ
     screenContent = (
       <VisitEditSheet T={T} visitId={screen.id}
         onClose={() => setScreen(screen.id ? { name: "detail", id: screen.id } : { name: "landing" })}
-        onSaved={(id) => setScreen({ name: "detail", id })} />
+        onSaved={(id) => setScreen({ name: "detail", id })}
+        onBeforeEdit={editUndo.captureBeforeEdit}
+        onAfterEdit={editUndo.notifyEdited} />
     );
   }
 
   return (
     <div style={{ background: T.bg, minHeight: "100vh" }}>
       <style>{`${FONT_IMPORT}`}</style>
+      {/* ADDED 19 Aug 2026 — real undo/redo toast, same pattern as
+          every other module. */}
+      {editUndo.toast && (
+        <div onClick={editUndo.toast.mode === "undo" ? editUndo.undo : editUndo.redo}
+          style={{ position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)", width: 340, background: editUndo.toast.mode === "undo" ? "#1B1B1F" : T.healthcareBlue, color: "#FFFFFF", borderRadius: 999, padding: "10px 16px", fontSize: 13, fontWeight: 600, textAlign: "center", cursor: "pointer", boxShadow: "0 8px 24px rgba(0,0,0,.25)", zIndex: 230, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {editUndo.toast.mode === "undo" ? <Check size={14} /> : <RefreshCcw size={14} />}
+          {editUndo.toast.mode === "undo" ? "Clinic visit updated — tap to undo" : "Undone — tap to redo"}
+        </div>
+      )}
       {screenContent}
     </div>
   );
