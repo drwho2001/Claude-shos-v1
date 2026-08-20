@@ -630,8 +630,9 @@ function MedicationEditSheet({ med, onSave, onClose, T }) {
   const categoryOptions = useMemo(() => CustomOptionListsRepository.get("medicationCategory"), []);
   const [form, setForm] = useState({
     name: med.name, route: med.route || "", medicationType: med.medicationType || "",
+    category: med.category || [],
     doseStrengthValue: med.doseStrengthValue || "", doseStrengthUnit: med.doseStrengthUnit || "",
-    usagePattern: med.usagePattern,
+    usagePattern: med.usagePattern, scheduleIntervalDays: med.scheduleIntervalDays || 2,
     dosesPerDay: med.dosesPerDay || 1, unitsPerDose: med.unitsPerDose, refillThreshold: med.refillThreshold,
     unitsPerContainer: med.unitsPerContainer || 0,
     // Default refill qty is edited in containers, stored in units — Kane's ask, matches how
@@ -722,8 +723,8 @@ function AddMedicationSheet({ onCreate, onClose, T }) {
   const routeOptions = useMemo(() => CustomOptionListsRepository.get("route"), []);
   const categoryOptions = useMemo(() => CustomOptionListsRepository.get("medicationCategory"), []);
   const [form, setForm] = useState({
-    name: "", route: "", medicationType: "", doseStrengthValue: "", doseStrengthUnit: "",
-    usagePattern: "daily", unitsPerDose: 1, dosesPerDay: 1,
+    name: "", route: "", medicationType: "", category: [], doseStrengthValue: "", doseStrengthUnit: "",
+    usagePattern: "daily", scheduleIntervalDays: 2, unitsPerDose: 1, dosesPerDay: 1,
     inventoryTracked: true, unitsPerContainer: 30, refillThreshold: 7, defaultRefillContainers: 1, usualSupplier: "",
   });
   const set = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));

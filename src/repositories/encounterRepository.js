@@ -230,12 +230,23 @@ function generateEncounterId() {
 // normalizeKinkSelections() for the full reasoning; duplicated here
 // rather than imported since it's a small pure function and Encounters
 // deliberately doesn't depend on Contacts' internals for anything else.
+// ADDED 20 Aug 2026 — same fix as contactRepository.js: the 19 Aug
+// "Bottom"→"bottom"/"Sub"→"sub" house-style rename (KINK_ROLE_OPTIONS/
+// MY_ROLE_OPTIONS above) only changed the option lists going forward,
+// not values already saved under the old casing. Duplicated here for
+// the same reason normalizeKinkSelections is duplicated rather than
+// imported.
+const LEGACY_ROLE_CASING = { Bottom: "bottom", Sub: "sub" };
+function normalizeRoleCasing(role) {
+  return role == null ? role : (LEGACY_ROLE_CASING[role] ?? role);
+}
+
 function normalizeKinkSelections(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map((entry) => {
     if (typeof entry === "string") return { kinkId: entry, role: null };
     if (entry && typeof entry === "object" && entry.kinkId) {
-      return { kinkId: entry.kinkId, role: entry.role ?? null };
+      return { kinkId: entry.kinkId, role: normalizeRoleCasing(entry.role ?? null) };
     }
     return null;
   }).filter(Boolean);
@@ -252,7 +263,7 @@ export const EncounterRepository = {
     return structuredClone(
       encounters.map((e) => {
         const merged = { ...DEFAULT_ENCOUNTER, ...e };
-        return { ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved) };
+        return { ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved), myRole: normalizeRoleCasing(merged.myRole) };
       })
     );
   },
@@ -261,7 +272,7 @@ export const EncounterRepository = {
     const found = encounters.find((e) => e.id === id);
     if (!found) return null;
     const merged = { ...DEFAULT_ENCOUNTER, ...found };
-    return structuredClone({ ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved) });
+    return structuredClone({ ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved), myRole: normalizeRoleCasing(merged.myRole) });
   },
 
   // Every encounter that lists this contact as an attendee — the read
@@ -273,7 +284,7 @@ export const EncounterRepository = {
         .filter((e) => e.attendeeIds.includes(contactId))
         .map((e) => {
           const merged = { ...DEFAULT_ENCOUNTER, ...e };
-          return { ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved) };
+          return { ...merged, kinksInvolved: normalizeKinkSelections(merged.kinksInvolved), myRole: normalizeRoleCasing(merged.myRole) };
         })
     );
   },

@@ -133,11 +133,21 @@ function persist() {
   storage.save(STORAGE_KEY, profile);
 }
 
+// ADDED 20 Aug 2026 — same fix as contactRepository.js/encounterRepository.js:
+// the 19 Aug "Bottom"→"bottom"/"Sub"→"sub" house-style rename to
+// BDSM_ROLE_OPTIONS only changed the option list going forward, not a
+// profile's bdsmRole values already saved under the old casing.
+const LEGACY_ROLE_CASING = { Bottom: "bottom", Sub: "sub" };
+function normalizeRoleCasing(role) {
+  return role == null ? role : (LEGACY_ROLE_CASING[role] ?? role);
+}
+
 export const MyProfileRepository = {
   // Singleton read — always returns a full shape (missing fields fall
   // back to DEFAULT_PROFILE), so callers never have to null-check.
   getProfile() {
-    return structuredClone({ ...DEFAULT_PROFILE, ...profile });
+    const merged = { ...DEFAULT_PROFILE, ...profile };
+    return structuredClone({ ...merged, bdsmRole: (merged.bdsmRole || []).map(normalizeRoleCasing) });
   },
 
   update(changes) {

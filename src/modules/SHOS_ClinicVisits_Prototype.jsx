@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Plus, ChevronLeft, Check, Paperclip, Upload, Trash2, Calendar, RefreshCcw } from "lucide-react";
+import { Plus, ChevronLeft, Check, Paperclip, Upload, Trash2, Calendar, RefreshCcw, X } from "lucide-react";
 import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
   ClinicVisitsRepository, DEFAULT_CLINIC_VISIT, generateAdHocMedId,

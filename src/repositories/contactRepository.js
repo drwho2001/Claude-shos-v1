@@ -306,12 +306,23 @@ function generateContactId() {
 // limit than "no fisting" full stop). `knownChems` still stays a plain
 // ID array — role genuinely doesn't apply to a chem the way it does to
 // an act.
+// ADDED 20 Aug 2026 — the 19 Aug "Bottom"→"bottom"/"Sub"→"sub" house-style
+// rename (see BDSM_ROLE_OPTIONS/SEXUAL_POSITION_OPTIONS/KINK_ROLE_OPTIONS
+// above) only changed the option list going forward — it didn't touch
+// role values already saved under the old casing. Same self-healing
+// pattern as normalizeKinkSelections below: fold legacy casing to
+// current on every read, forever, rather than a one-off migration.
+const LEGACY_ROLE_CASING = { Bottom: "bottom", Sub: "sub" };
+function normalizeRoleCasing(role) {
+  return role == null ? role : (LEGACY_ROLE_CASING[role] ?? role);
+}
+
 function normalizeKinkSelections(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map((entry) => {
     if (typeof entry === "string") return { kinkId: entry, role: null };
     if (entry && typeof entry === "object" && entry.kinkId) {
-      return { kinkId: entry.kinkId, role: entry.role ?? null };
+      return { kinkId: entry.kinkId, role: normalizeRoleCasing(entry.role ?? null) };
     }
     return null;
   }).filter(Boolean);
@@ -341,7 +352,11 @@ export const ContactRepository = {
     return structuredClone(
       contacts.map((c) => {
         const merged = { ...DEFAULT_CONTACT, ...c };
-        return { ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks), limits: normalizeKinkSelections(merged.limits) };
+        return {
+          ...merged,
+          statedKinks: normalizeKinkSelections(merged.statedKinks), limits: normalizeKinkSelections(merged.limits),
+          bdsmRole: (merged.bdsmRole || []).map(normalizeRoleCasing), sexualPosition: (merged.sexualPosition || []).map(normalizeRoleCasing),
+        };
       })
     );
   },
@@ -350,7 +365,11 @@ export const ContactRepository = {
     const found = contacts.find((c) => c.id === id);
     if (!found) return null;
     const merged = { ...DEFAULT_CONTACT, ...found };
-    return structuredClone({ ...merged, statedKinks: normalizeKinkSelections(merged.statedKinks), limits: normalizeKinkSelections(merged.limits) });
+    return structuredClone({
+      ...merged,
+      statedKinks: normalizeKinkSelections(merged.statedKinks), limits: normalizeKinkSelections(merged.limits),
+      bdsmRole: (merged.bdsmRole || []).map(normalizeRoleCasing), sexualPosition: (merged.sexualPosition || []).map(normalizeRoleCasing),
+    });
   },
 
   create(data) {

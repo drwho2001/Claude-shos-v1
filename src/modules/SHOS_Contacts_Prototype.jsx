@@ -873,7 +873,7 @@ function ContactCard({ contact, onOpen, T, encounters = [], anonymise = false, i
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span title={isInactive ? "No encounter in over 90 days" : undefined}
+        <span title={isInactive ? `No encounter in over ${inactiveThresholdDays} days` : undefined}
           style={{ width: 8, height: 8, borderRadius: radius.full, background: isInactive ? T.actionRed : T.contactsTeal, display: "inline-block" }} />
         <span style={{ fontFamily: "'Public Sans', sans-serif", fontWeight: 600, fontSize: 15, color: T.textPrimary }}>{anonymise ? MASKED : displayName(contact)}</span>
         {ratingEmoji && <span style={{ fontSize: 14 }}>{ratingEmoji}</span>}
