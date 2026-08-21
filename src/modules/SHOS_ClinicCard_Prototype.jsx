@@ -12,11 +12,14 @@ import { formatRelativeDate, sortByDateDesc } from "../calculations/encounterCal
 import { MyProfileRepository } from "../repositories/myProfileRepository";
 import { SymptomLogRepository } from "../repositories/symptomLogRepository";
 import { VaccinationRepository } from "../repositories/vaccinationRepository";
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here. See designTokens.js.
+import { NEUTRAL, ACCENTS, ACTION } from "../calculations/designTokens";
 
 const T = {
-  bg: "#F0F0F3", surface: "#FFFFFF", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-  healthcareBlue: "#4A80F0", actionRed: "#E5484D",
+  ...NEUTRAL,
+  healthcareBlue: ACCENTS.healthcare, actionRed: ACTION.red,
 };
 
 // ADDED 19 Aug 2026 — Clinic Card, per Kane's priority order. Built

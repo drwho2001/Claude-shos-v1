@@ -7,12 +7,14 @@ import { CustomOptionListsRepository, OPTION_LIST_LABELS, OPTION_LIST_ICONS } fr
 // adding a 17th category later is one line here, matching the same
 // low-friction pattern the rest of this option-lists system already
 // has.
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here. See designTokens.js.
+import { NEUTRAL } from "../calculations/designTokens";
+
 const ICON_COMPONENTS = { Pill, ArrowRightCircle, ClipboardList, CalendarClock, TestTube, Syringe, CalendarCheck, MapPin, PlayCircle, Tag };
 
-const T = {
-  bg: "#F0F0F3", surface: "#FFFFFF", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-};
+const T = { ...NEUTRAL };
 
 // ADDED 19 Aug 2026 — the "idiot-proof" editor Kane asked for, for the
 // simple flat option lists (see customOptionListsRepository.js for the

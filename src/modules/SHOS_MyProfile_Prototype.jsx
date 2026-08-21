@@ -40,14 +40,18 @@ import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym, analyzeKinkEntry, 
 // ADDED — real fix: same normalizeTag Contacts/Encounters use.
 import { normalizeTag } from "../calculations/contactCalculations";
 import { ChemsRegistry } from "../registries/chemsRegistry";
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here, so this screen can't silently drift from every other
+// module's "same" color/radius. See designTokens.js.
+import { NEUTRAL, ACCENTS, ACTION, RADIUS } from "../calculations/designTokens";
 
 const LIGHT = {
-  bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-  contactsTeal: "#14B8A6", actionRed: "#E5484D", actionGreen: "#1B9E77",
-  navActive: "#14B8A6", fabBg: "#1B1B1F", fabIcon: "#FFFFFF",
+  ...NEUTRAL,
+  contactsTeal: ACCENTS.contacts, actionRed: ACTION.red, actionGreen: ACTION.green,
+  navActive: ACCENTS.contacts, fabBg: NEUTRAL.textPrimary, fabIcon: NEUTRAL.surface,
 };
-const radius = { sm: 8, md: 16, lg: 24, full: 999 };
+const radius = RADIUS;
 
 function idFromLabel(label) {
   return "combo-" + label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

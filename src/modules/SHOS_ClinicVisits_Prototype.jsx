@@ -17,16 +17,19 @@ import { ResultsRegistry } from "../registries/resultsRegistry";
 // ADDED 19 Aug 2026 — draft autosave, same pattern as every other
 // edit sheet this round.
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here, so this screen can't silently drift from every other
+// module's "same" color/radius. See designTokens.js.
+import { NEUTRAL, ACCENTS, ACTION, RADIUS } from "../calculations/designTokens";
 
 // Same Healthcare blue + font conventions as Testing — applied from
 // creation, not retrofitted, per Kane's standing instruction.
 const LIGHT = {
-  bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-  healthcareBlue: "#4A80F0", actionRed: "#E5484D", actionGreen: "#1B9E77",
+  ...NEUTRAL,
+  healthcareBlue: ACCENTS.healthcare, actionRed: ACTION.red, actionGreen: ACTION.green,
 };
-const radius = { sm: 8, md: 16, lg: 24, full: 999 };
-const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`;
+const radius = RADIUS;
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -681,7 +684,6 @@ export default function ClinicVisitsModule({ openAddOnMount = false, onConsumedQ
 
   return (
     <div style={{ background: T.bg, minHeight: "100vh" }}>
-      <style>{`${FONT_IMPORT}`}</style>
       {/* ADDED 19 Aug 2026 — real undo/redo toast, same pattern as
           every other module. */}
       {editUndo.toast && (

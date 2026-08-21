@@ -10,6 +10,11 @@ import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
 import { SymptomLogRepository } from "../repositories/symptomLogRepository";
 import { ResultsRegistry } from "../registries/resultsRegistry";
 import { getEncounterCoverage } from "../calculations/exposureWindows";
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here, so this screen can't silently drift from every other
+// module's "same" color/radius. See designTokens.js.
+import { NEUTRAL, ACCENTS, ACTION, RADIUS } from "../calculations/designTokens";
 
 // ADDED 19 Aug 2026 — Timeline (the nav-facing name; "Episode" is the
 // underlying data unit — see episodeRepository.js for the full
@@ -17,12 +22,10 @@ import { getEncounterCoverage } from "../calculations/exposureWindows";
 // contained-module pattern, Healthcare blue, Public Sans + JetBrains
 // Mono conventions as the rest of Healthcare.
 const LIGHT = {
-  bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-  healthcareBlue: "#4A80F0", actionRed: "#E5484D", actionGreen: "#1B9E77",
+  ...NEUTRAL,
+  healthcareBlue: ACCENTS.healthcare, actionRed: ACTION.red, actionGreen: ACTION.green,
 };
-const radius = { sm: 8, md: 16, lg: 24, full: 999 };
-const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`;
+const radius = RADIUS;
 
 function formatDate(iso) {
   if (!iso) return "—";
@@ -377,7 +380,6 @@ export default function TimelineModule({ onClose } = {}) {
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: LIGHT.bg, minHeight: "100vh" }}>
-      <style>{FONT_IMPORT}</style>
       {screen.name === "list" && <TimelineLanding T={LIGHT} onOpen={(id) => setScreen({ name: "detail", id })} onAdd={() => setScreen({ name: "add" })} onClose={onClose} />}
       {screen.name === "detail" && <EpisodeDetail T={LIGHT} episodeId={screen.id} onBack={backToList} />}
       {screen.name === "add" && <StartSheet T={LIGHT} onSave={startEpisode} onClose={backToList} />}

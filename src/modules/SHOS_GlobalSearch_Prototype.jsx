@@ -16,6 +16,18 @@ import { KinkRegistry } from "../registries/kinkRegistry";
 // substring matching (what this had before) only handled case, not
 // misspellings.
 import { fuzzyIncludes } from "../calculations/fuzzyMatch";
+// CHANGED 20 Aug 2026 — real design-unification pass: this module had
+// no shared theme object at all (every other module has a LIGHT/T
+// constant built from these same values) — raw hex was typed directly
+// into each style prop instead. Brought in line with the rest of the
+// app's pattern, reading from the shared designTokens.js source of
+// truth. Also fixes a real bug found in the process: medication's
+// result-badge color here was #3B82F6, a different, lighter blue than
+// Medication Dashboard's own accent (ACCENTS.medication, #3D63C9) —
+// same drift App.jsx's nav tab/quick-add button had.
+import { NEUTRAL, ACCENTS, FONT_FAMILY } from "../calculations/designTokens";
+
+const T = { ...NEUTRAL };
 
 // ADDED 19 Aug 2026 — Global Search, one of Kane's two joint-top
 // priority items (alongside Settings) from the FULL VERIFIED AUDIT's
@@ -38,13 +50,13 @@ import { fuzzyIncludes } from "../calculations/fuzzyMatch";
 // the project's own standing practice is to keep search coverage
 // honest against actual app state rather than a doc written earlier.
 const RESULT_META = {
-  contact: { label: "Contact", icon: Users, color: "#14B8A6", tab: "contacts" },
-  encounter: { label: "Activity", icon: Activity, color: "#E24E9C", tab: "activity" },
-  medication: { label: "Medication", icon: Pill, color: "#3B82F6", tab: "medication" },
-  test: { label: "Test", icon: HeartPulse, color: "#4A80F0", tab: "healthcare", subTab: "testing" },
-  clinicVisit: { label: "Clinic Visit", icon: HeartPulse, color: "#4A80F0", tab: "healthcare", subTab: "clinicVisits" },
-  symptomLog: { label: "Symptom Log", icon: HeartPulse, color: "#4A80F0", tab: "healthcare", subTab: "symptomLog" },
-  vaccination: { label: "Vaccination", icon: HeartPulse, color: "#4A80F0", tab: "healthcare", subTab: "vaccinations" },
+  contact: { label: "Contact", icon: Users, color: ACCENTS.contacts, tab: "contacts" },
+  encounter: { label: "Activity", icon: Activity, color: ACCENTS.encounters, tab: "activity" },
+  medication: { label: "Medication", icon: Pill, color: ACCENTS.medication, tab: "medication" },
+  test: { label: "Test", icon: HeartPulse, color: ACCENTS.healthcare, tab: "healthcare", subTab: "testing" },
+  clinicVisit: { label: "Clinic Visit", icon: HeartPulse, color: ACCENTS.healthcare, tab: "healthcare", subTab: "clinicVisits" },
+  symptomLog: { label: "Symptom Log", icon: HeartPulse, color: ACCENTS.healthcare, tab: "healthcare", subTab: "symptomLog" },
+  vaccination: { label: "Vaccination", icon: HeartPulse, color: ACCENTS.healthcare, tab: "healthcare", subTab: "vaccinations" },
 };
 
 function norm(v) {
@@ -149,17 +161,17 @@ function ResultRow({ result, onSelect }) {
   const Icon = meta.icon;
   return (
     <div onClick={() => onSelect(result)}
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #DCDCE1", cursor: "pointer", background: "#FFFFFF" }}>
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: T.surface }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
         <div style={{ width: 34, height: 34, borderRadius: 999, background: `${meta.color}1A`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <Icon size={16} color={meta.color} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#1B1B1F", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{result.title}</div>
-          <div style={{ fontSize: 11, color: "#5B5B62" }}>{meta.label}{result.subtitle ? ` · ${result.subtitle}` : ""}</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.textPrimary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{result.title}</div>
+          <div style={{ fontSize: 11, color: T.textSecondary }}>{meta.label}{result.subtitle ? ` · ${result.subtitle}` : ""}</div>
         </div>
       </div>
-      <ChevronRight size={16} color="#9A9AA1" style={{ flexShrink: 0 }} />
+      <ChevronRight size={16} color={T.textDisabled} style={{ flexShrink: 0 }} />
     </div>
   );
 }
@@ -193,27 +205,27 @@ export default function GlobalSearchScreen({ onClose, onNavigate }) {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#F0F0F3", zIndex: 200, display: "flex", flexDirection: "column", fontFamily: "'Public Sans', sans-serif" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 16, borderBottom: "1px solid #DCDCE1", background: "#FFFFFF" }}>
-        <Search size={18} color="#9A9AA1" style={{ flexShrink: 0 }} />
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 200, display: "flex", flexDirection: "column", fontFamily: FONT_FAMILY }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 16, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+        <Search size={18} color={T.textDisabled} style={{ flexShrink: 0 }} />
         <input
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search contacts, medications, activities, tests, clinic visits..."
-          style={{ flex: 1, border: "none", outline: "none", fontSize: 15, background: "transparent", color: "#1B1B1F", fontFamily: "'Public Sans', sans-serif" }}
+          style={{ flex: 1, border: "none", outline: "none", fontSize: 15, background: "transparent", color: T.textPrimary, fontFamily: FONT_FAMILY }}
         />
-        <X size={20} color="#5B5B62" style={{ cursor: "pointer", flexShrink: 0 }} onClick={onClose} />
+        <X size={20} color={T.textSecondary} style={{ cursor: "pointer", flexShrink: 0 }} onClick={onClose} />
       </div>
 
       <div style={{ flex: 1, overflowY: "auto" }}>
         {query.trim().length === 0 && (
-          <div style={{ padding: "40px 24px", textAlign: "center", color: "#9A9AA1", fontSize: 13 }}>
+          <div style={{ padding: "40px 24px", textAlign: "center", color: T.textDisabled, fontSize: 13 }}>
             Start typing to search across Contacts, Medications, Activities, Tests, and Clinic Visits.
           </div>
         )}
         {query.trim().length > 0 && results.length === 0 && (
-          <div style={{ padding: "40px 24px", textAlign: "center", color: "#9A9AA1", fontSize: 13 }}>
+          <div style={{ padding: "40px 24px", textAlign: "center", color: T.textDisabled, fontSize: 13 }}>
             No matches for "{query}".
           </div>
         )}

@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SHOS</title>
+    <!-- Loaded once, globally, instead of per-module @import — every
+         screen used to load its own copy of this (or none at all, which
+         is why some screens rendered in the browser's default font
+         instead of Public Sans/JetBrains Mono depending on which screen
+         mounted first). See designTokens.js for the rest of the shared
+         design-token migration this belongs to. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="root"></div>

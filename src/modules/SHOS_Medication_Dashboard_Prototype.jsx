@@ -17,14 +17,23 @@ import { computeStock, computeAdherence, nextDoseEstimate, isDoseLockedOut, lock
 // the top" too, not just on Clinic Card. Read-only here — Allergies
 // itself is edited on My Profile, this is just a visibility surface.
 import { MyProfileRepository } from "../repositories/myProfileRepository";
+// CHANGED 20 Aug 2026 — real design-unification pass: LIGHT's neutral
+// palette and semantic action colors now read from the shared
+// designTokens.js source of truth instead of being retyped here.
+// DARK is deliberately left untouched — designTokens.js is light-only
+// so far (dark-mode token unification is the bigger Appearance
+// refactor already flagged as its own piece of work, not something to
+// improvise here), and DARK's goldText/streakGlow/navActive/fabBg/
+// fabIcon values are hand-tuned per-value for dark-surface contrast,
+// not derivable from LIGHT's tokens.
+import { NEUTRAL, ACCENTS, ACTION, RADIUS } from "../calculations/designTokens";
 
 const LIGHT = {
   // bg deepened from #FAFAFA — at that value it was nearly indistinguishable from surface (#FFFFFF),
   // so cards read as floating on the same white rather than visibly elevated. surfaceVariant
   // shifted slightly to stay a distinct third tone rather than collapsing into the new bg.
-  bg: "#F0F0F3", surface: "#FFFFFF", surfaceVariant: "#E7E7EB", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-  medsBlue: "#3D63C9", actionRed: "#E5484D", actionGreen: "#1B9E77",
+  ...NEUTRAL,
+  medsBlue: ACCENTS.medication, actionRed: ACTION.red, actionGreen: ACTION.green,
   // Doc 2's Platforms gold (#E8A400) is tuned as a chip *fill* with dark text — used directly as
   // *text* on a light background it fails contrast (~2.1:1, needs 4.5:1). This is a separate,
   // darker gold specifically for foreground/text use — see Doc 5 §5 note on the Inventory status line.
@@ -47,7 +56,7 @@ const DARK = {
   // flagged as a problem, so it stays subtle; dark gets more pop.
   streakGlow: "#F59E0B40",
 };
-const radius = { sm: 8, md: 16, lg: 24, full: 999 };
+const radius = RADIUS;
 
 // Days-remaining, dropping to hours/minutes under 1 day — same idea as the Next Dose estimate,
 // applied here to remaining supply instead of dosing interval.

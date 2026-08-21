@@ -2,11 +2,14 @@ import React, { useState, useMemo } from "react";
 import { ChevronLeft, Trash2, FileText } from "lucide-react";
 import { TestingRepository } from "../repositories/testingRepository";
 import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here. See designTokens.js.
+import { NEUTRAL, ACCENTS } from "../calculations/designTokens";
 
 const T = {
-  bg: "#F0F0F3", surface: "#FFFFFF", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-  healthcareBlue: "#4A80F0",
+  ...NEUTRAL,
+  healthcareBlue: ACCENTS.healthcare,
 };
 
 const TYPE_OPTIONS = ["Test result", "Prescription", "ID", "Photo", "Other"];

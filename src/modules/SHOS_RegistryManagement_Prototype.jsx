@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from "react";
 import { ChevronLeft, Plus, Archive, ArchiveRestore } from "lucide-react";
+// CHANGED 20 Aug 2026 — real design-unification pass: values read
+// from the shared designTokens.js source of truth instead of being
+// retyped here. See designTokens.js.
+import { NEUTRAL } from "../calculations/designTokens";
 
-const T = {
-  bg: "#F0F0F3", surface: "#FFFFFF", border: "#DCDCE1",
-  textPrimary: "#1B1B1F", textSecondary: "#5B5B62", textDisabled: "#9A9AA1",
-};
+const T = { ...NEUTRAL };
 
 // ADDED 19 Aug 2026 — Registry Management, per Kane's priority order.
 // ONE shared screen for all 6 registries (Kink/Chems/Protection/

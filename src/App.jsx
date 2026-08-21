@@ -167,12 +167,20 @@ function HealthcareScreen({ openAddOnMount, onConsumedQuickAdd, quickAddTarget }
 // treatment (dark, circular, raised) rather than a flat accent, since
 // it isn't tied to one domain color the way the other four are — see
 // the nav bar's own render logic below for the raised-circle styling.
+// CHANGED 20 Aug 2026 — real bug found in the design-unification pass:
+// Medication's nav accent (#3B82F6) didn't actually match Medication
+// Dashboard's own accent (medsBlue, #3D63C9/ACCENTS.medication) despite
+// this comment block's own stated intent above — the nav tab and home
+// quick-add button were a visibly different, lighter blue than the
+// screen they represent. Now reads from ACCENTS directly (same as the
+// other three domain tabs, already imported in this file) so this
+// can't silently drift from the module's own color again.
 const TABS = [
-  { key: "contacts", label: "Contacts", icon: Users, component: ContactsModule, accent: "#14B8A6" },
-  { key: "activity", label: "Activity", icon: Activity, component: EncountersModule, accent: "#E24E9C" },
-  { key: "home", label: "Home", icon: Home, component: null, accent: "#1B1B1F" },
-  { key: "medication", label: "Medication", icon: Pill, component: MedicationDashboard, accent: "#3B82F6" },
-  { key: "healthcare", label: "Healthcare", icon: HeartPulse, component: HealthcareScreen, accent: "#4A80F0" },
+  { key: "contacts", label: "Contacts", icon: Users, component: ContactsModule, accent: ACCENTS.contacts },
+  { key: "activity", label: "Activity", icon: Activity, component: EncountersModule, accent: ACCENTS.encounters },
+  { key: "home", label: "Home", icon: Home, component: null, accent: NEUTRAL.textPrimary },
+  { key: "medication", label: "Medication", icon: Pill, component: MedicationDashboard, accent: ACCENTS.medication },
+  { key: "healthcare", label: "Healthcare", icon: HeartPulse, component: HealthcareScreen, accent: ACCENTS.healthcare },
 ];
 
 // ADDED 19 Aug 2026 — real Home screen: a genuine summary of recent
@@ -348,15 +356,20 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: "#5B5B62", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Quick add</div>
       <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Personal</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-        <QuickAddButton icon={Users} label="New contact" color="#14B8A6" onClick={() => onQuickAdd("contacts")} />
+        <QuickAddButton icon={Users} label="New contact" color={ACCENTS.contacts} onClick={() => onQuickAdd("contacts")} />
         {/* CHANGED — real ask: a distinct icon for Encounter rather
             than the generic Activity glyph. Lucide doesn't have a
             literal "lips" icon (checked before picking a substitute,
             not guessed at) — Flame is the closest thematically-honest
             match already established in this app (Kink Registry uses
             it the same way), kept in Encounters' own existing pink. */}
-        <QuickAddButton icon={Flame} label="New encounter" color="#E24E9C" onClick={() => onQuickAdd("activity")} />
-        <QuickAddButton icon={Pill} label="Log medication" color="#3B82F6" onClick={() => onQuickAdd("medication")} />
+        <QuickAddButton icon={Flame} label="New encounter" color={ACCENTS.encounters} onClick={() => onQuickAdd("activity")} />
+        {/* CHANGED 20 Aug 2026 — real bug found in the design-
+            unification pass: this was #3B82F6, a different, lighter
+            blue than Medication Dashboard's own accent (medsBlue,
+            ACCENTS.medication). Now reads from the same shared token
+            the module itself uses. */}
+        <QuickAddButton icon={Pill} label="Log medication" color={ACCENTS.medication} onClick={() => onQuickAdd("medication")} />
       </div>
       <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Healthcare</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
