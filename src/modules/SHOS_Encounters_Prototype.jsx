@@ -9,7 +9,7 @@
 // never writes to a Contact record; the link is one-directional storage,
 // as documented in encounterRepository.js).
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 // ADDED 19 Aug 2026 — draft autosave, real fix for in-progress edits
 // being lost on refresh. See draftStorage.js for the full reasoning.
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
@@ -24,7 +24,13 @@ import { timeOfDay, sortByDateDesc, formatRelativeDate } from "../calculations/e
 import { ContactRepository } from "../repositories/contactRepository";
 // New 18 Aug 2026: real registries now exist for these fields — replaces
 // the free-text TagField stubs used until this session.
-import { KinkRegistry, KINK_ROLE_OPTIONS } from "../registries/kinkRegistry";
+import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym, analyzeKinkEntry, getKinkRoleOptions } from "../registries/kinkRegistry";
+// ADDED — real fix: same normalizeTag Contacts already uses, imported
+// here rather than duplicated — it's a pure, generic text utility, not
+// Contacts-specific, matching how other pure calculation helpers
+// (formatRelativeDate etc.) are already shared cross-module in this
+// codebase.
+import { normalizeTag } from "../calculations/contactCalculations";
 import { ChemsRegistry } from "../registries/chemsRegistry";
 import { ProtectionRegistry } from "../registries/protectionRegistry";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
@@ -189,8 +195,11 @@ function GivingReceivingChips({ label, value, onChange, options, T }) {
 // ergonomics the old TagField had, but now backed by a real linked
 // entity instead of a bare string, closing the "Fist vs Fisting never
 // matched" gap flagged back on 18 Aug.
-function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [] }) {
+function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [], resolveSynonym = (x) => x, analyzeEntry = null, getRoleOptionsForKink = null }) {
   const [draft, setDraft] = useState("");
+  // ADDED — real ask: "did you mean...?" for a recognized typo or an
+  // umbrella term, same mechanism now built and proven in Contacts.
+  const [pendingSuggestion, setPendingSuggestion] = useState(null);
   const listId = `registry-${label.replace(/\s+/g, "-")}`;
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
   const nameFor = (id) => allEntries.find((e) => e.id === id)?.name || registry.getById(id)?.name || "?";
@@ -219,27 +228,67 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
     if (trackRole) onChange(value.filter((v) => v.kinkId !== id));
     else onChange(value.filter((v) => v !== id));
   };
+  // CHANGED — real ask: role options now depend on WHICH kink is being
+  // cycled, not one fixed set for everything — same fix as Contacts,
+  // restoring what Kane's original Notion data (Dom/sub vs Top/bottom)
+  // actually knew before this session's earlier deduplication flattened
+  // it. See KINK_ROLE_STYLE in kinkRegistry.js for the full reasoning.
+  const resolveRoleOptions = (id) => {
+    if (getRoleOptionsForKink) return getRoleOptionsForKink(nameFor(id));
+    return roleOptions;
+  };
   const cycleRole = (id) => {
     if (!trackRole) return;
+    const optionsForThisKink = resolveRoleOptions(id);
+    if (!optionsForThisKink) return; // mutual kink — nothing to cycle
     onChange(value.map((v) => {
       if (v.kinkId !== id) return v;
-      const currentIndex = v.role ? roleOptions.indexOf(v.role) : -1;
-      const nextRole = currentIndex + 1 < roleOptions.length ? roleOptions[currentIndex + 1] : null;
+      const currentIndex = v.role ? optionsForThisKink.indexOf(v.role) : -1;
+      const nextRole = currentIndex + 1 < optionsForThisKink.length ? optionsForThisKink[currentIndex + 1] : null;
       return { ...v, role: nextRole };
     }));
   };
 
-  // CHANGED 18 Aug 2026 — real bug fix, same as Contacts/My Profile:
-  // "fisting, gooning, piss" used to become one registry entry named
-  // that whole string. Now splits on commas, resolves each piece
-  // independently.
+  // CHANGED — real bug found in Kane's own testing: a kink typed here
+  // wasn't showing up as an option when the SAME kink was typed in
+  // Contacts, and vice versa. Root cause traced directly: Contacts
+  // runs every typed kink through `resolveSynonym(normalizeTag(text))`
+  // before findOrCreate — canonicalizing wording AND casing so
+  // "ass play"/"Ass Play"/a known synonym all resolve to the one real
+  // registry entry. This picker called `findOrCreate(part)` on raw,
+  // untouched text — no case-normalization, no synonym resolution —
+  // so the exact same kink typed slightly differently in each place
+  // was silently creating separate, near-duplicate registry entries.
+  // The underlying registry was always genuinely shared (confirmed
+  // directly); this picker just wasn't feeding it consistently.
+  const finalizeEntry = (resolvedName) => {
+    const entry = registry.findOrCreate(resolvedName);
+    if (entry && !hasSelection(entry.id)) addEntries([entry.id]);
+  };
+
   const commit = () => {
     const raw = draft.trim();
     if (!raw) { setDraft(""); return; }
     const parts = raw.split(",").map((t) => t.trim()).filter(Boolean);
+
+    // ADDED — real ask: before committing a single typed entry, check
+    // whether it's a recognized umbrella term or a likely typo close
+    // to an existing entry, and ask instead of silently deciding.
+    if (analyzeEntry && parts.length === 1) {
+      const normalized = normalizeTag(parts[0]);
+      const analysis = analyzeEntry(normalized);
+      if (analysis.type === "umbrella" || analysis.type === "fuzzy-suggestion") {
+        setPendingSuggestion(analysis);
+        setDraft("");
+        return;
+      }
+    }
+
     const newIds = [];
     parts.forEach((part) => {
-      const entry = registry.findOrCreate(part);
+      const resolved = resolveSynonym(normalizeTag(part));
+      if (!resolved) return;
+      const entry = registry.findOrCreate(resolved);
       if (entry && !hasSelection(entry.id) && !newIds.includes(entry.id)) newIds.push(entry.id);
     });
     addEntries(newIds);
@@ -254,20 +303,24 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 6 }}>{label}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-        {(trackRole ? value : value.map((id) => ({ kinkId: id, role: null }))).map((sel) => (
-          <div key={sel.kinkId} style={{ display: "flex", alignItems: "center", borderRadius: radius.full, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-            <div style={{ padding: "4px 8px", fontSize: 12, color: T.textSecondary, display: "flex", alignItems: "center", gap: 4 }}>
-              {nameFor(sel.kinkId)}
-              <X size={11} style={{ cursor: "pointer" }} onClick={() => removeEntry(sel.kinkId)} />
-            </div>
-            {trackRole && (
-              <div onClick={() => cycleRole(sel.kinkId)}
-                style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderLeft: `1px solid ${T.border}`, color: sel.role ? T.encountersPink : T.textDisabled }}>
-                {sel.role || "+ role"}
+        {(trackRole ? value : value.map((id) => ({ kinkId: id, role: null }))).map((sel) => {
+          // CHANGED — a "mutual" kink shows no role badge at all now.
+          const roleOptionsForThisKink = trackRole ? resolveRoleOptions(sel.kinkId) : null;
+          return (
+            <div key={sel.kinkId} style={{ display: "flex", alignItems: "center", borderRadius: radius.full, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+              <div style={{ padding: "4px 8px", fontSize: 12, color: T.textSecondary, display: "flex", alignItems: "center", gap: 4 }}>
+                {nameFor(sel.kinkId)}
+                <X size={11} style={{ cursor: "pointer" }} onClick={() => removeEntry(sel.kinkId)} />
               </div>
-            )}
-          </div>
-        ))}
+              {trackRole && roleOptionsForThisKink && (
+                <div onClick={() => cycleRole(sel.kinkId)}
+                  style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderLeft: `1px solid ${T.border}`, color: sel.role ? T.encountersPink : T.textDisabled }}>
+                  {sel.role || "+ role"}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       {/* ADDED 18 Aug 2026 — rendered above the input on purpose, same
           reasoning as Contacts/My Profile: the on-screen keyboard covers
@@ -291,6 +344,48 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
       <datalist id={listId}>
         {allEntries.map((e) => <option key={e.id} value={e.name} />)}
       </datalist>
+      {/* ADDED — real ask: "did you mean...?" prompt, same behavior as
+          Contacts — accepting a suggestion or keeping exactly what was
+          typed are both one tap, neither forced. */}
+      {pendingSuggestion && (
+        <div style={{ marginTop: 6, padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.encountersPink}`, background: `${T.encountersPink}10` }}>
+          {pendingSuggestion.type === "umbrella" ? (
+            <>
+              <div style={{ fontSize: 12, color: T.textPrimary, marginBottom: 6 }}>
+                "{pendingSuggestion.typedAs}" is a broader term — did you mean {pendingSuggestion.specific.length > 1 ? "one of these more specific ones" : "the more specific"}?
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {pendingSuggestion.specific.map((entry) => (
+                  <div key={entry.id} onClick={() => { finalizeEntry(entry.name); setPendingSuggestion(null); }}
+                    style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, background: T.encountersPink, color: "#FFFFFF", cursor: "pointer" }}>
+                    Use "{entry.name}"
+                  </div>
+                ))}
+                <div onClick={() => { finalizeEntry(pendingSuggestion.typedAs); setPendingSuggestion(null); }}
+                  style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`, color: T.textSecondary, cursor: "pointer" }}>
+                  Keep "{pendingSuggestion.typedAs}"
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: T.textPrimary, marginBottom: 6 }}>
+                Did you mean "{pendingSuggestion.suggestion}"? You typed "{pendingSuggestion.typedAs}".
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div onClick={() => { finalizeEntry(pendingSuggestion.suggestion); setPendingSuggestion(null); }}
+                  style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, background: T.encountersPink, color: "#FFFFFF", cursor: "pointer" }}>
+                  Yes, use "{pendingSuggestion.suggestion}"
+                </div>
+                <div onClick={() => { finalizeEntry(pendingSuggestion.typedAs); setPendingSuggestion(null); }}
+                  style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`, color: T.textSecondary, cursor: "pointer" }}>
+                  No, add "{pendingSuggestion.typedAs}" as new
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -472,8 +567,12 @@ function ActivityLanding({ T, onOpenEncounter, onAdd }) {
       {/* CHANGED 19 Aug 2026 — same fix as Contacts' Add button: now
           clears the nav bar (was sitting within its height) and
           matches Contacts' exact position so both align vertically. */}
+      {/* CHANGED — real ask: icon size normalized to 24, matching
+          Contacts/Medication's identical FAB pattern exactly — was 26,
+          a small but genuine inconsistency within an identically-sized
+          56x56 circle across all three screens using this pattern. */}
       <div onClick={onAdd} style={{ position: "fixed", bottom: 90, right: 20, width: 56, height: 56, borderRadius: radius.full, background: T.fabBg, color: T.fabIcon, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)", zIndex: 20 }}>
-        <Plus size={26} />
+        <Plus size={24} />
       </div>
     </div>
   );
@@ -601,7 +700,16 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved, onBeforeEdit, on
     return isNew ? { ...DEFAULT_ENCOUNTER } : EncounterRepository.getById(encounterId);
   });
   const [draftRestored] = useState(() => !!loadDraft(draftKey));
+  // CHANGED — real bug from Kane's own testing: this fired on the
+  // very first render too, immediately autosaving the pristine,
+  // untouched default form the instant "Add Activity" opened — so
+  // just opening and closing it with zero real edits left a "draft"
+  // behind, which then showed as a false "Restored unsaved changes"
+  // next time. Skips the initial mount with a ref, only saves once the
+  // form has genuinely changed from what it started as.
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     saveDraft(draftKey, form);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
@@ -666,7 +774,7 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved, onBeforeEdit, on
         </SectionCard>
 
         <SectionCard title="Kink & chems" T={T}>
-          <RegistryTagPicker label="Kinks involved" value={form.kinksInvolved} onChange={set("kinksInvolved")} T={T} registry={KinkRegistry} trackRole roleOptions={KINK_ROLE_OPTIONS} />
+          <RegistryTagPicker label="Kinks involved" value={form.kinksInvolved} onChange={set("kinksInvolved")} T={T} registry={KinkRegistry} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} analyzeEntry={analyzeKinkEntry} getRoleOptionsForKink={getKinkRoleOptions} />
           <RegistryTagPicker label="Chems/alcohol used" value={form.chemsAlcoholUsed} onChange={set("chemsAlcoholUsed")} T={T} registry={ChemsRegistry} />
         </SectionCard>
 

@@ -33,10 +33,16 @@ import RegistryManagementScreen from "./modules/SHOS_RegistryManagement_Prototyp
 import OptionListsScreen from "./modules/SHOS_OptionListEditor_Prototype";
 import { PrivacySettingsRepository } from "./repositories/privacySettingsRepository";
 import { AppPreferencesRepository } from "./repositories/appPreferencesRepository";
+// ADDED — real ask: "standardise UI/appearance." Shared design tokens,
+// the actual foundation — see designTokens.js for full reasoning and
+// honest scope (this is a start, not a finished migration).
+import { NEUTRAL, ACCENTS, FONT_FAMILY, RADIUS } from "./calculations/designTokens";
 import { CustomOptionListsRepository } from "./repositories/customOptionListsRepository";
+// ADDED — real ask: Home's title should read "[Name]'s dashboard".
+import { MyProfileRepository } from "./repositories/myProfileRepository";
 import { computeKinkUsage, computeChemsUsage, computeProtectionUsage, computeSymptomsUsage, computeOrganismUsage, computeResultsUsage } from "./calculations/registryUsage";
 import { formatRelativeDate } from "./calculations/encounterCalculations";
-import { Home, Users, Activity, Pill, HeartPulse, Download, Upload, ChevronRight, Settings as SettingsIcon, ChevronLeft, User, Search, Database, Trash2, AlertTriangle, Check, ClipboardList, ListTree, Paperclip, History, EyeOff, Eye, TestTube, Flame, Shield, Stethoscope, Microscope, ClipboardCheck } from "lucide-react";
+import { Home, Users, Activity, Pill, HeartPulse, Download, Upload, ChevronRight, Settings as SettingsIcon, ChevronLeft, User, Search, Database, Trash2, AlertTriangle, Check, ClipboardList, ListTree, Paperclip, History, EyeOff, Eye, TestTube, Flame, Shield, Stethoscope, Microscope, ClipboardCheck, Syringe, Thermometer } from "lucide-react";
 
 // CHANGED 18 Aug 2026 — real persistent bottom nav, replacing the old
 // top switcher. Per Doc 1 (Master Navigation Map v1.0): five tabs —
@@ -81,25 +87,37 @@ function HealthcareScreen({ openAddOnMount, onConsumedQuickAdd, quickAddTarget }
   const [showClinicCard, setShowClinicCard] = useState(false);
   const [showAttachments, setShowAttachments] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
-  const T = { healthcareBlue: "#4A80F0", border: "#DCDCE1", textSecondary: "#5B5B62", surface: "#FFFFFF" };
+  // CHANGED — real bugs found in Kane's own device testing: (1) this
+  // whole screen had no fontFamily set anywhere at all, unlike every
+  // other screen in the app, which wraps itself in Public Sans
+  // explicitly — meaning it rendered in the browser's own default
+  // font this whole time. (2) 4 sub-tab pills AND 3 icon-shortcuts
+  // were fighting for space in ONE flex row with the icon group
+  // pinned `flexShrink: 0`, forcing the pills to wrap awkwardly on a
+  // real phone-width screen — "crammed... top left" was a real,
+  // literal layout collision, not just visual taste. Both fixed here;
+  // this is also the first real module migrated onto the shared
+  // design tokens (designTokens.js) rather than its own hand-typed
+  // hex values — the actual start of "standardise UI/appearance",
+  // not a promise of it.
+  const T = { healthcareBlue: ACCENTS.healthcare, border: NEUTRAL.border, textSecondary: NEUTRAL.textSecondary, surface: NEUTRAL.surface, bg: NEUTRAL.bg };
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 0", background: "#F0F0F3" }}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+    <div style={{ fontFamily: FONT_FAMILY }}>
+      <div style={{ padding: "14px 16px 0", background: T.bg }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
           {[{ key: "testing", label: "Testing" }, { key: "clinicVisits", label: "Clinic Visits" }, { key: "symptomLog", label: "Symptom Log" }, { key: "vaccinations", label: "Vaccinations" }].map((t) => (
             <div key={t.key} onClick={() => setSubTab(t.key)}
-              style={{ padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: "pointer", background: subTab === t.key ? T.healthcareBlue : T.surface, color: subTab === t.key ? "#FFFFFF" : T.textSecondary, border: `1px solid ${subTab === t.key ? T.healthcareBlue : T.border}` }}>
+              style={{ padding: "6px 14px", borderRadius: RADIUS.full, fontSize: 12, fontWeight: 700, cursor: "pointer", background: subTab === t.key ? T.healthcareBlue : T.surface, color: subTab === t.key ? "#FFFFFF" : T.textSecondary, border: `1px solid ${subTab === t.key ? T.healthcareBlue : T.border}` }}>
               {t.label}
             </div>
           ))}
         </div>
-        {/* ADDED 19 Aug 2026 — Timeline entry point, alongside Clinic
-            Card + Attachments, same "icon in Healthcare's header"
-            pattern — see also Home's own Timeline shortcut below,
-            matching Clinic Card's existing dual-entry-point precedent
-            (an icon here, a button on Home) rather than picking one. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        {/* CHANGED — real fix: moved to its own row below the sub-tab
+            pills, instead of squeezed alongside them in one row —
+            same entry points (Timeline/Attachments/Clinic Card),
+            genuinely room to breathe now. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
           <div onClick={() => setShowTimeline(true)} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
             <History size={15} color={T.healthcareBlue} />
             <span style={{ fontSize: 12, fontWeight: 700, color: T.healthcareBlue }}>Timeline</span>
@@ -166,6 +184,11 @@ const TABS = [
 // a summary screen, not something that needs to stay live-reactive to
 // changes happening on OTHER tabs while you're looking at Home.
 function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
+  // ADDED — real ask: title reads "[Name]'s dashboard" instead of a
+  // bare "Home". My Profile only has `nickname`, no separate name
+  // field — falls back to a generic label if it's never been filled
+  // in, rather than showing "'s dashboard" with a blank in front.
+  const [profileName] = useState(() => MyProfileRepository.getProfile().nickname);
   const [lastContact, setLastContact] = useState(null);
   const [lastEncounter, setLastEncounter] = useState(null);
   const [lastDose, setLastDose] = useState(null);
@@ -208,9 +231,18 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
     const sortedTests = [...tests].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
     setLastTest(sortedTests[0] || null);
 
-    // ADDED 19 Aug 2026 — real, appropriate now that Clinic Visits
-    // exists too: soonest upcoming appointment, if any.
-    const visits = ClinicVisitsRepository.getAll().filter((v) => !v.isArchived && v.isFutureAppointment && v.date);
+    // CHANGED — real bug from Kane's own testing ("Next clinic visit
+    // is displaying incorrect or incomplete data"): this used to filter
+    // on `isFutureAppointment`, a manually-set toggle from when the
+    // visit was created — nothing ever flips it back off once that
+    // date actually passes, so a stale-flagged past visit could keep
+    // showing as "next", while a genuinely future visit left un-toggled
+    // wouldn't show at all. Derived from the real date instead — same
+    // "store facts, derive state" principle already used for Contacts'
+    // own inactive-flag logic, just not consistently applied here
+    // before now.
+    const today = new Date().toISOString().slice(0, 10);
+    const visits = ClinicVisitsRepository.getAll().filter((v) => !v.isArchived && v.date && v.date.slice(0, 10) >= today);
     const sortedUpcoming = [...visits].sort((a, b) => new Date(a.date) - new Date(b.date));
     setNextVisit(sortedUpcoming[0] || null);
   }, []);
@@ -271,7 +303,7 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
   return (
     <div style={{ padding: "20px 16px", fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ fontSize: 22, fontWeight: 700, color: "#1B1B1F", marginBottom: 4, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        Home
+        {profileName ? `${profileName}'s dashboard` : "Your dashboard"}
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           {/* ADDED 19 Aug 2026 — Global Search, canonical Home placement
               per Doc 1, same treatment as the Settings gear icon right
@@ -300,43 +332,9 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
         <SummaryRow label="Next clinic visit" value={nextVisit ? `${(nextVisit.reasonForVisit || []).join("/") || nextVisit.title || "Visit"} · ${formatRelativeDate(nextVisit.date)}` : "None scheduled"} />
       </div>
 
-      {/* CHANGED 19 Aug 2026 — real tidy: was 7 visually-identical
-          buttons in one flat list with zero grouping — genuinely hard
-          to scan at a glance despite each having its own icon/color.
-          Split into two real groups matching how the rest of the app
-          is already organized: Personal (Contacts/Activity/Medication
-          — each its own bottom-nav tab) and Healthcare (the 4 sub-
-          screens living inside one Healthcare tab). Same buttons, same
-          destinations — purely a grouping fix, nothing removed. */}
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#5B5B62", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Quick add</div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Personal</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-        <QuickAddButton icon={Users} label="New contact" color="#14B8A6" onClick={() => onQuickAdd("contacts")} />
-        <QuickAddButton icon={Activity} label="New encounter" color="#E24E9C" onClick={() => onQuickAdd("activity")} />
-        <QuickAddButton icon={Pill} label="Log medication" color="#3B82F6" onClick={() => onQuickAdd("medication")} />
-      </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Healthcare</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {/* CHANGED 19 Aug 2026 — real ask: Testing had shared the same
-            generic HeartPulse icon as every other Healthcare quick-add
-            (Clinic Visit/Symptom/Vaccination), no visual distinction at
-            all despite four different destinations. Testing gets its
-            own icon; the other three stay HeartPulse — genuinely
-            appropriate generic-healthcare icons for those, not the
-            specific ambiguity that was actually flagged. */}
-        <QuickAddButton icon={TestTube} label="Log test" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "testing")} />
-        <QuickAddButton icon={HeartPulse} label="New clinic visit" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "clinicVisits")} />
-        <QuickAddButton icon={HeartPulse} label="Log symptom" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "symptomLog")} />
-        <QuickAddButton icon={HeartPulse} label="Log vaccination" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "vaccinations")} />
-      </div>
-
-      {/* CHANGED 19 Aug 2026 — real tidy: Clinic Card and Timeline were
-          two separate full-width stacked blocks — both are simple
-          navigation shortcuts to a Workspace-tier screen (Architecture
-          Lock's own term for this exact category), genuinely the same
-          KIND of thing, so they're combined into one row instead of
-          eating two full rows of vertical space. */}
-      <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+      {/* CHANGED — real ask: Clinic Card + Timeline moved above Quick
+          Add, was below it before. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <div onClick={() => setShowClinicCard(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
           <ClipboardList size={15} color="#4A80F0" />
           <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Clinic Card</span>
@@ -345,6 +343,32 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
           <History size={15} color="#4A80F0" />
           <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Timeline</span>
         </div>
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#5B5B62", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Quick add</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Personal</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        <QuickAddButton icon={Users} label="New contact" color="#14B8A6" onClick={() => onQuickAdd("contacts")} />
+        {/* CHANGED — real ask: a distinct icon for Encounter rather
+            than the generic Activity glyph. Lucide doesn't have a
+            literal "lips" icon (checked before picking a substitute,
+            not guessed at) — Flame is the closest thematically-honest
+            match already established in this app (Kink Registry uses
+            it the same way), kept in Encounters' own existing pink. */}
+        <QuickAddButton icon={Flame} label="New encounter" color="#E24E9C" onClick={() => onQuickAdd("activity")} />
+        <QuickAddButton icon={Pill} label="Log medication" color="#3B82F6" onClick={() => onQuickAdd("medication")} />
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Healthcare</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <QuickAddButton icon={TestTube} label="Log test" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "testing")} />
+        {/* CHANGED — real ask: Clinic Visit gets Stethoscope, Symptom
+            gets Thermometer ("Bandage" isn't an icon this lucide-react
+            version exports — build-verified before picking a
+            substitute, not guessed at), and Vaccination gets Syringe —
+            was all four sharing the same generic HeartPulse before. */}
+        <QuickAddButton icon={Stethoscope} label="New clinic visit" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "clinicVisits")} />
+        <QuickAddButton icon={Thermometer} label="Log symptom" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "symptomLog")} />
+        <QuickAddButton icon={Syringe} label="Log vaccination" color="#4A80F0" onClick={() => onQuickAdd("healthcare", "vaccinations")} />
       </div>
 
       {/* ADDED 19 Aug 2026 — real ask: a backup reminder. No cloud
@@ -834,7 +858,14 @@ function SettingsScreen({ onClose, onExport, onImportClick, status }) {
 
       <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, padding: "0 16px 6px" }}>Data</div>
       <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, margin: "0 16px 8px", overflow: "hidden" }}>
-        <SettingsRow icon={Download} label="Export backup" onClick={onExport} />
+        {/* CHANGED — real bug found in Kane's own testing: passing
+            `exportBackup` directly meant the DOM click's SyntheticEvent
+            got passed as `includeKeys`, which buildBackup() then tried
+            to iterate as a selective-key Set and threw. Selective
+            export never hit this because its own button already
+            wrapped the call in an arrow function that discards the
+            event. Wrapping this one the same way. */}
+        <SettingsRow icon={Download} label="Export backup" onClick={() => onExport()} />
         {/* ADDED 19 Aug 2026 — real ask: default export stays one tap
             (the row above, unchanged), this is the opt-in "choose what
             to include" path. */}

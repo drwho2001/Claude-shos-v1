@@ -8,6 +8,14 @@ import { ClinicVisitsRepository } from "../repositories/clinicVisitsRepository";
 import { SymptomLogRepository } from "../repositories/symptomLogRepository";
 import { VaccinationRepository } from "../repositories/vaccinationRepository";
 import { formatRelativeDate } from "../calculations/encounterCalculations";
+// ADDED — real bug found in Kane's own testing: kinks were never
+// indexed in Global Search at all — searching "fisting" found nothing,
+// even for a Contact/Encounter that genuinely had it recorded.
+import { KinkRegistry } from "../registries/kinkRegistry";
+// ADDED — real ask: typo-tolerant fuzzy matching, since plain
+// substring matching (what this had before) only handled case, not
+// misspellings.
+import { fuzzyIncludes } from "../calculations/fuzzyMatch";
 
 // ADDED 19 Aug 2026 — Global Search, one of Kane's two joint-top
 // priority items (alongside Settings) from the FULL VERIFIED AUDIT's
@@ -53,7 +61,13 @@ function buildIndex() {
   const results = [];
 
   ContactRepository.getAll().filter((c) => !c.isArchived).forEach((c) => {
-    const searchText = [c.name, c.nickname, c.phone, c.snapchat, c.fabguys, c.fabswingers, c.city, c.notes].join(" ");
+    // CHANGED — real bug fix: resolve kink IDs to real names and
+    // include them in the search text — statedKinks/limits store
+    // {kinkId, role} selections, not names, so this needs an explicit
+    // resolve step, the same one every kink-displaying screen already
+    // does.
+    const kinkNames = [...c.statedKinks, ...c.limits].map((sel) => KinkRegistry.getById(sel.kinkId)?.name).filter(Boolean);
+    const searchText = [c.name, c.nickname, c.phone, c.snapchat, c.fabguys, c.fabswingers, c.city, c.notes, ...kinkNames].join(" ");
     results.push({
       type: "contact", id: c.id,
       title: c.nickname || c.name || "Unnamed contact",
@@ -73,7 +87,9 @@ function buildIndex() {
   });
 
   EncounterRepository.getAll().filter((e) => !e.isArchived).forEach((e) => {
-    const searchText = [e.title, e.encounterType, e.notes].join(" ");
+    // CHANGED — same real fix as Contacts above.
+    const kinkNames = (e.kinksInvolved || []).map((sel) => KinkRegistry.getById(sel.kinkId)?.name).filter(Boolean);
+    const searchText = [e.title, e.encounterType, e.notes, ...kinkNames].join(" ");
     results.push({
       type: "encounter", id: e.id,
       title: e.title || e.encounterType || "Encounter",
@@ -164,7 +180,10 @@ export default function GlobalSearchScreen({ onClose, onNavigate }) {
   const results = useMemo(() => {
     const q = query.trim();
     if (!q.length) return [];
-    return index.filter((r) => norm(r.searchText).includes(norm(q))).slice(0, 30);
+    // CHANGED — real ask: typo-tolerant matching, not just case-
+    // insensitive substring. See fuzzyMatch.js for exactly what this
+    // does and doesn't cover.
+    return index.filter((r) => fuzzyIncludes(r.searchText, q)).slice(0, 30);
   }, [query, index]);
 
   const handleSelect = (result) => {

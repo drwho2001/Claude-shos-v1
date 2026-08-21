@@ -69,16 +69,57 @@ function SelectField({ label, value, onChange, options, T }) {
 // to" — one real occurrence maps to one registry concept in every case
 // Kane's actual data suggests, same judgment already applied to
 // Encounters' locationId.
+// CHANGED — real bug from Kane's own testing: this was a plain closed
+// <select>, with no way to type a new entry — unlike every OTHER
+// registry-backed picker in this app (Testing's Result picker,
+// Contacts' Stated Kinks, etc.), all of which support typing +
+// tap-suggestion + findOrCreate. Combined with SymptomsRegistry having
+// zero seed entries, the dropdown had nothing to show AND no way to
+// add anything — "shows no options, can't type" exactly. Rebuilt to
+// match the same typing+suggestion+findOrCreate mechanics as Testing's
+// RegistrySingleResultPicker, still single-value (one occurrence maps
+// to one registry concept — that reasoning was correct, only the
+// input mechanism was broken).
 function SymptomSelect({ value, onChange, T }) {
-  const entries = SymptomsRegistry.getAll().filter((e) => !e.isArchived);
+  const [draft, setDraft] = useState("");
+  const allEntries = SymptomsRegistry.getAll().filter((e) => !e.isArchived);
+  const currentName = value ? (SymptomsRegistry.getById(value)?.name || "?") : null;
+  const visibleSuggestions = allEntries.filter((e) => e.id !== value).slice(0, 8);
+
+  const commit = () => {
+    const raw = draft.trim();
+    if (!raw) return;
+    const entry = SymptomsRegistry.findOrCreate(raw);
+    if (entry) onChange(entry.id);
+    setDraft("");
+  };
+
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Symptom (registry)</div>
-      <select value={value ?? ""} onChange={(e) => onChange(e.target.value)}
-        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }}>
-        <option value="">—</option>
-        {entries.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-      </select>
+      {currentName && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          <div onClick={() => onChange("")}
+            style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, background: T.surfaceVariant, color: T.textPrimary, cursor: "pointer" }}>
+            {currentName} ✕
+          </div>
+        </div>
+      )}
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((e) => (
+            <div key={e.id} onClick={() => onChange(e.id)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
+              {e.name}
+            </div>
+          ))}
+        </div>
+      )}
+      <input value={draft} onChange={(ev) => setDraft(ev.target.value)}
+        onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } }}
+        onBlur={commit}
+        placeholder="Type to add or search"
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
     </div>
   );
 }

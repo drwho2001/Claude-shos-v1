@@ -32,7 +32,7 @@ import { contactEncounterSummary, sortByDateDesc, formatRelativeDate } from "../
 // New 18 Aug 2026: Kink Registry and Chems Registry now exist as real
 // modules — Stated kinks/Limits/Known chems below switch from freeform
 // TagInput to real registry-linked pickers.
-import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym } from "../registries/kinkRegistry";
+import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym, analyzeKinkEntry, getKinkRoleOptions } from "../registries/kinkRegistry";
 import { ChemsRegistry } from "../registries/chemsRegistry";
 // ADDED 18 Aug 2026 — Import Shared Profile moved here from My Profile:
 // importing creates a new Contact, so it belongs where Contacts are
@@ -430,8 +430,14 @@ function TagInput({ label, value, onChange, T, placeholder, suggestions = [] }) 
 // what actually closes the "Fist vs Fisting" gap TagInput's own comment
 // flagged as unsolved — one canonical registry entry per concept,
 // found case-insensitively or created new via findOrCreate.
-function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [], resolveSynonym = (x) => x }) {
+function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, excludeIds = [], trackRole = false, roleOptions = [], resolveSynonym = (x) => x, analyzeEntry = null, getRoleOptionsForKink = null }) {
   const [draft, setDraft] = useState("");
+  // ADDED — real ask: "did you mean...?" for a recognized typo or an
+  // umbrella term with a more specific real option. Only used when
+  // `analyzeEntry` is actually passed in (Kink-backed pickers) —
+  // Chems/Protection/Symptoms pickers don't have this analysis
+  // available and are completely unaffected.
+  const [pendingSuggestion, setPendingSuggestion] = useState(null);
   const listId = idFromLabel(label) + "-registry";
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
   const nameFor = (id) => allEntries.find((e) => e.id === id)?.name || registry.getById(id)?.name || "?";
@@ -464,16 +470,28 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
     if (trackRole) onChange(value.filter((v) => v.kinkId !== id));
     else onChange(value.filter((v) => v !== id));
   };
-  // Tapping a selection's role badge cycles: no role -> first
-  // roleOption -> next -> ... -> back to no role. Matches the app's
-  // existing "tap to cycle" pattern (e.g. availability rule type
-  // toggles) rather than opening a separate dropdown for one value.
+  // CHANGED — real ask: role options now depend on WHICH kink is being
+  // cycled, not one fixed set for everything. Kane's own original
+  // Notion data already knew CBT/Chastity/Choking etc. needed Dom/sub,
+  // not Top/bottom — restoring that real distinction (see
+  // KINK_ROLE_STYLE in kinkRegistry.js for the full reasoning).
+  // `getRoleOptionsForKink`, when passed, resolves the right set per
+  // selection; falls back to the old fixed `roleOptions` prop when it
+  // isn't (Chems/Protection/Symptoms pickers, which have no such
+  // concept). A "mutual" kink resolves to `null` — no role at all for
+  // that specific selection, cycling does nothing for it.
+  const resolveRoleOptions = (id) => {
+    if (getRoleOptionsForKink) return getRoleOptionsForKink(nameFor(id));
+    return roleOptions;
+  };
   const cycleRole = (id) => {
     if (!trackRole) return;
+    const optionsForThisKink = resolveRoleOptions(id);
+    if (!optionsForThisKink) return; // mutual kink — nothing to cycle
     onChange(value.map((v) => {
       if (v.kinkId !== id) return v;
-      const currentIndex = v.role ? roleOptions.indexOf(v.role) : -1;
-      const nextRole = currentIndex + 1 < roleOptions.length ? roleOptions[currentIndex + 1] : null;
+      const currentIndex = v.role ? optionsForThisKink.indexOf(v.role) : -1;
+      const nextRole = currentIndex + 1 < optionsForThisKink.length ? optionsForThisKink[currentIndex + 1] : null;
       return { ...v, role: nextRole };
     }));
   };
@@ -496,6 +514,33 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
   // role that still had to be set afterwards via the tap-to-cycle badge.
   // Non-trackRole pickers (Chems/Protection/Symptoms) are unaffected —
   // extractKinkRoleFromText only runs when trackRole/roleOptions apply.
+  // CHANGED — real ask: before committing, check whether what's typed
+  // is a recognized umbrella term (e.g. "Breath play" when "Choking"
+  // is the real, more specific option) or a likely typo close to an
+  // existing entry — and if so, ask instead of silently deciding for
+  // Kane. Only applies to a SINGLE typed entry (not a comma-separated
+  // multi-paste) — that's the real, common case this was actually
+  // asked for, and juggling several pending prompts from one paste
+  // would be real added complexity for a rare case.
+  const finalizeEntry = (resolvedName, role) => {
+    const entry = registry.findOrCreate(resolvedName);
+    if (entry && !hasSelection(entry.id)) {
+      if (trackRole) onChange([...value, { kinkId: entry.id, role }]);
+      else onChange([...value, entry.id]);
+    }
+  };
+
+  // CHANGED — real gap: extraction needs to recognize BOTH role
+  // vocabularies now (Top/bottom/Vers AND Dom/sub/Switch), not just
+  // one fixed set — otherwise typing "CBT sub" wouldn't recognize
+  // "sub" as a role word at all (it's not in the anatomical set) and
+  // "sub" would incorrectly get treated as part of the kink's NAME.
+  // Combines both vocabularies for parsing purposes only — which axis
+  // is actually "correct" for a given kink is decided by
+  // getKinkRoleOptions once the kink itself is resolved, this just
+  // needs to recognize the WORD at parse time, before that's known.
+  const extractionRoleOptions = getRoleOptionsForKink ? ["Top", "bottom", "Vers", "Dom", "sub", "Switch"] : roleOptions;
+
   const commitDraft = (el) => {
     const raw = draft.trim();
     if (!raw) {
@@ -503,9 +548,21 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
       return;
     }
     const rawParts = raw.split(",").map((t) => t.trim()).filter(Boolean);
+
+    if (analyzeEntry && rawParts.length === 1) {
+      const { text, role } = trackRole ? extractKinkRoleFromText(rawParts[0], extractionRoleOptions) : { text: rawParts[0], role: null };
+      const normalized = normalizeTag(text);
+      const analysis = analyzeEntry(normalized);
+      if (analysis.type === "umbrella" || analysis.type === "fuzzy-suggestion") {
+        setPendingSuggestion({ ...analysis, role });
+        setDraft("");
+        return;
+      }
+    }
+
     const newSelections = [];
     rawParts.forEach((rawPart) => {
-      const { text, role } = trackRole ? extractKinkRoleFromText(rawPart, roleOptions) : { text: rawPart, role: null };
+      const { text, role } = trackRole ? extractKinkRoleFromText(rawPart, extractionRoleOptions) : { text: rawPart, role: null };
       const resolved = resolveSynonym(normalizeTag(text));
       if (!resolved) return;
       const entry = registry.findOrCreate(resolved);
@@ -529,21 +586,28 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
       {value.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-          {(trackRole ? value : value.map((id) => ({ kinkId: id, role: null }))).map((sel) => (
-            <div key={sel.kinkId}
-              style={{ display: "flex", alignItems: "center", borderRadius: radius.full, background: T.surfaceVariant, overflow: "hidden" }}>
-              <div onClick={() => removeEntry(sel.kinkId)}
-                style={{ padding: "4px 8px", fontSize: 12, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-                {nameFor(sel.kinkId)} <X size={11} />
-              </div>
-              {trackRole && (
-                <div onClick={() => cycleRole(sel.kinkId)}
-                  style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderLeft: `1px solid ${T.border}`, color: sel.role ? T.contactsTeal : T.textDisabled }}>
-                  {sel.role || "+ role"}
+          {(trackRole ? value : value.map((id) => ({ kinkId: id, role: null }))).map((sel) => {
+            // CHANGED — a "mutual" kink (e.g. Frotting, Snowballing)
+            // shows no role badge at all now, rather than offering a
+            // Top/bottom cycle that doesn't actually describe anything
+            // real about that kink.
+            const roleOptionsForThisKink = trackRole ? resolveRoleOptions(sel.kinkId) : null;
+            return (
+              <div key={sel.kinkId}
+                style={{ display: "flex", alignItems: "center", borderRadius: radius.full, background: T.surfaceVariant, overflow: "hidden" }}>
+                <div onClick={() => removeEntry(sel.kinkId)}
+                  style={{ padding: "4px 8px", fontSize: 12, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+                  {nameFor(sel.kinkId)} <X size={11} />
                 </div>
-              )}
-            </div>
-          ))}
+                {trackRole && roleOptionsForThisKink && (
+                  <div onClick={() => cycleRole(sel.kinkId)}
+                    style={{ padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", borderLeft: `1px solid ${T.border}`, color: sel.role ? T.contactsTeal : T.textDisabled }}>
+                    {sel.role || "+ role"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       {/* CHANGED 18 Aug 2026 — suggestions now render ABOVE the input,
@@ -569,6 +633,49 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder, e
       <datalist id={listId}>
         {allEntries.map((e) => <option key={e.id} value={e.name} />)}
       </datalist>
+      {/* ADDED — real ask: "did you mean...?" prompt. Shown instead of
+          silently deciding for Kane — accepting a suggestion or
+          keeping the typed word exactly as-is are both one tap away,
+          neither is forced. */}
+      {pendingSuggestion && (
+        <div style={{ marginTop: 6, padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.healthcareBlue || "#4A80F0"}`, background: `${T.healthcareBlue || "#4A80F0"}10` }}>
+          {pendingSuggestion.type === "umbrella" ? (
+            <>
+              <div style={{ fontSize: 12, color: T.textPrimary, marginBottom: 6 }}>
+                "{pendingSuggestion.typedAs}" is a broader term — did you mean {pendingSuggestion.specific.length > 1 ? "one of these more specific ones" : "the more specific"}?
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {pendingSuggestion.specific.map((entry) => (
+                  <div key={entry.id} onClick={() => { finalizeEntry(entry.name, pendingSuggestion.role); setPendingSuggestion(null); }}
+                    style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, background: T.healthcareBlue || "#4A80F0", color: "#FFFFFF", cursor: "pointer" }}>
+                    Use "{entry.name}"
+                  </div>
+                ))}
+                <div onClick={() => { finalizeEntry(pendingSuggestion.typedAs, pendingSuggestion.role); setPendingSuggestion(null); }}
+                  style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`, color: T.textSecondary, cursor: "pointer" }}>
+                  Keep "{pendingSuggestion.typedAs}"
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: T.textPrimary, marginBottom: 6 }}>
+                Did you mean "{pendingSuggestion.suggestion}"? You typed "{pendingSuggestion.typedAs}".
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div onClick={() => { finalizeEntry(pendingSuggestion.suggestion, pendingSuggestion.role); setPendingSuggestion(null); }}
+                  style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, background: T.healthcareBlue || "#4A80F0", color: "#FFFFFF", cursor: "pointer" }}>
+                  Yes, use "{pendingSuggestion.suggestion}"
+                </div>
+                <div onClick={() => { finalizeEntry(pendingSuggestion.typedAs, pendingSuggestion.role); setPendingSuggestion(null); }}
+                  style={{ padding: "4px 10px", borderRadius: radius.full, fontSize: 12, fontWeight: 600, border: `1px solid ${T.border}`, color: T.textSecondary, cursor: "pointer" }}>
+                  No, add "{pendingSuggestion.typedAs}" as new
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1072,8 +1179,30 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
         </SectionCard>
 
         <SectionCard T={T} title="Kink">
-          <RegistryTagPicker T={T} label="Stated kinks" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} excludeIds={form.limits.map((l) => l.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} />
-          <RegistryTagPicker T={T} label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} excludeIds={form.statedKinks.map((s) => s.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} />
+          {/* REVERTED — Kane clarified the cross-exclusion (a kink
+              already in Limits hidden from Stated Kinks' suggestions,
+              and vice versa) was actually wanted, kept as-is. The
+              "unify?" question was about something else entirely (see
+              below) — this exclusion was never the cause. Overlap
+              warning kept as a defensive backstop for the rare case a
+              kink still ends up in both anyway (e.g. via a backup
+              restore or direct data edit, which bypass the picker's
+              own exclusion) — not contradicting "keep the exclusion",
+              just covering what the exclusion itself can't catch. */}
+          <RegistryTagPicker T={T} label="Stated kinks" value={form.statedKinks} onChange={set("statedKinks")} registry={KinkRegistry} excludeIds={form.limits.map((l) => l.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} analyzeEntry={analyzeKinkEntry} getRoleOptionsForKink={getKinkRoleOptions} />
+          <RegistryTagPicker T={T} label="Limits" value={form.limits} onChange={set("limits")} registry={KinkRegistry} excludeIds={form.statedKinks.map((s) => s.kinkId)} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} analyzeEntry={analyzeKinkEntry} getRoleOptionsForKink={getKinkRoleOptions} />
+          {(() => {
+            const statedIds = new Set(form.statedKinks.map((s) => s.kinkId));
+            const overlapping = form.limits.filter((l) => statedIds.has(l.kinkId)).map((l) => KinkRegistry.getById(l.kinkId)?.name).filter(Boolean);
+            return overlapping.length > 0 ? (
+              <div style={{ display: "flex", gap: 6, padding: "8px 0", alignItems: "flex-start" }}>
+                <AlertTriangle size={13} color={T.actionRed} style={{ flexShrink: 0, marginTop: 2 }} />
+                <span style={{ fontSize: 11, color: T.actionRed, lineHeight: 1.4 }}>
+                  Listed as both a stated kink and a limit: {overlapping.join(", ")}. Left as-is — worth a second look, not necessarily wrong.
+                </span>
+              </div>
+            ) : null;
+          })()}
           <MultiSelectChips T={T} label="Role" value={form.bdsmRole} onChange={set("bdsmRole")} options={BDSM_ROLE_OPTIONS} />
           <MultiSelectChips T={T} label="Position" value={form.sexualPosition} onChange={set("sexualPosition")} options={SEXUAL_POSITION_OPTIONS} />
         </SectionCard>

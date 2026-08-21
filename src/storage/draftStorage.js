@@ -12,6 +12,19 @@
 // sheet checks for a leftover draft on mount and silently recovers it
 // instead of starting blank.
 //
+// CHANGED — real, more precise ask: this recovery should be scoped to
+// the CURRENT app session only. If the app is genuinely closed (not
+// just backgrounded, navigated away from, or reloaded mid-session) and
+// relaunched fresh, that memory should be gone — a stale draft
+// resurfacing days later on a completely fresh open is surprising, not
+// helpful. `sessionStorage` is the exact right browser-native primitive
+// for this rather than something to build by hand: it persists across
+// reloads/navigation within one continuous session, the same way
+// `localStorage` did, but is cleared automatically the moment the
+// browser tab (or, once Capacitor-wrapped, the app's own session) ends
+// — no custom "session marker" invalidation logic needed, the platform
+// already draws exactly the line Kane described.
+//
 // Deliberately its own small file (shared infrastructure, like
 // storageAdapter.js) rather than duplicated per module — unlike UI
 // components, this is pure logic with no visual identity to keep
@@ -32,7 +45,7 @@ const DRAFT_PREFIX = "shos_draft_";
 
 export function saveDraft(draftKey, data) {
   try {
-    localStorage.setItem(DRAFT_PREFIX + draftKey, JSON.stringify({ data, savedAt: new Date().toISOString() }));
+    sessionStorage.setItem(DRAFT_PREFIX + draftKey, JSON.stringify({ data, savedAt: new Date().toISOString() }));
   } catch {
     // Silently no-op — see file header.
   }
@@ -40,7 +53,7 @@ export function saveDraft(draftKey, data) {
 
 export function loadDraft(draftKey) {
   try {
-    const raw = localStorage.getItem(DRAFT_PREFIX + draftKey);
+    const raw = sessionStorage.getItem(DRAFT_PREFIX + draftKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" && "data" in parsed ? parsed : null;
@@ -51,7 +64,7 @@ export function loadDraft(draftKey) {
 
 export function clearDraft(draftKey) {
   try {
-    localStorage.removeItem(DRAFT_PREFIX + draftKey);
+    sessionStorage.removeItem(DRAFT_PREFIX + draftKey);
   } catch {
     // Silently no-op.
   }
