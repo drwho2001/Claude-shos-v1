@@ -343,13 +343,12 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
       {/* CHANGED — real ask: Clinic Card + Timeline moved above Quick
           Add, was below it before. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {/* CHANGED — real ask: Clinic Card gets an ID-card icon (CreditCard
-            — "IdCard" isn't exported by this lucide-react version, build-
-            verified before picking a substitute), Timeline gets a calendar
-            icon, instead of the generic clipboard/history icons before. */}
-        <div onClick={() => setShowClinicCard(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: `1px solid ${NEUTRAL.border}`, background: NEUTRAL.surface, cursor: "pointer" }}>
-          <CreditCard size={15} color={ACCENTS.healthcare} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: ACCENTS.healthcare }}>Clinic Card</span>
+        {/* CHANGED — real ask: Clinic Card gets an ID-card icon, Timeline
+            gets a calendar icon, instead of the generic clipboard/history
+            icons before. */}
+        <div onClick={() => setShowClinicCard(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
+          <CreditCard size={15} color="#4A80F0" />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Clinic Card</span>
         </div>
         <div onClick={() => setShowTimeline(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
           <Calendar size={15} color="#4A80F0" />
@@ -1135,6 +1134,19 @@ export default function App() {
     setNavResetCount((c) => c + 1);
   };
 
+  // ADDED — real ask: "linked encounter should be actually linked",
+  // "attendees should link through to contact card", both directions.
+  // Same prop-threading pattern already used for openAddOnMount/
+  // quickAddTarget above — ActiveModule already receives props
+  // uniformly regardless of which module is currently active, so this
+  // reuses that same plumbing rather than building new per-module
+  // wiring.
+  const [pendingOpenRecordId, setPendingOpenRecordId] = useState(null);
+  const navigateToRecord = (tabKey, recordId) => {
+    navigateTo(tabKey);
+    setPendingOpenRecordId(recordId);
+  };
+
   const handleImportClick = () => fileInputRef.current?.click();
   const handleFileChosen = (e) => {
     const file = e.target.files?.[0];
@@ -1161,7 +1173,8 @@ export default function App() {
         {active === "home" ? (
           <HomeScreen onQuickAdd={handleQuickAdd} onOpenSettings={() => setShowSettings(true)} onOpenSearch={() => setShowSearch(true)} />
         ) : ActiveModule ? (
-          <ActiveModule key={`${active}-${navResetCount}`} openAddOnMount={quickAdd} onConsumedQuickAdd={() => { setQuickAdd(false); setQuickAddTarget(null); }} quickAddTarget={quickAddTarget} />
+          <ActiveModule key={`${active}-${navResetCount}`} openAddOnMount={quickAdd} onConsumedQuickAdd={() => { setQuickAdd(false); setQuickAddTarget(null); }} quickAddTarget={quickAddTarget}
+            openRecordId={pendingOpenRecordId} onConsumedRecordOpen={() => setPendingOpenRecordId(null)} onNavigateToRecord={navigateToRecord} />
         ) : (
           <div style={{ padding: 40, textAlign: "center", color: "#5B5B62", fontFamily: "sans-serif" }}>
             <activeTab.icon size={32} color="#9A9AA1" style={{ marginBottom: 12 }} />

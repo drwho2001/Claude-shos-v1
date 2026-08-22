@@ -110,15 +110,45 @@ export const TestingRepository = {
     return found ? structuredClone({ ...DEFAULT_TEST, ...found }) : null;
   },
 
+  // ADDED — real ask: "mostRecent" was a plain manual checkbox with no
+  // logic behind it at all — nothing prevented a future-dated test
+  // from being flagged, and nothing un-flagged an older test once a
+  // newer one genuinely covered the same ground. Real definition used
+  // here, matching Kane's own: two tests on the SAME DAY can both
+  // stay "most recent" (different sample sites, same visit) — this
+  // only un-flags an test that's both OLDER (different, earlier date)
+  // AND tests for at least one of the SAME infections as the new one,
+  // since that's genuinely what "superseded" means — a test for
+  // something completely different isn't superseded by this one.
+  _supersedeOlderMostRecent(newTest) {
+    if (!newTest.mostRecent || !newTest.date) return;
+    const newDay = newTest.date.slice(0, 10);
+    tests = tests.map((t) => {
+      if (t.id === newTest.id || !t.mostRecent || !t.date) return t;
+      const sameDay = t.date.slice(0, 10) === newDay;
+      if (sameDay) return t; // same-day tests can coexist as most recent
+      const isOlder = new Date(t.date) < new Date(newTest.date);
+      const overlaps = (t.testingFor || []).some((x) => (newTest.testingFor || []).includes(x));
+      if (isOlder && overlaps) return { ...t, mostRecent: false };
+      return t;
+    });
+  },
+
   create(data) {
+    // CHANGED — real ask: "future tests are not recent" — a test
+    // dated in the future can never be marked most recent, regardless
+    // of what was passed in.
+    const isFuture = data.date && new Date(data.date) > new Date();
     const newTest = {
       ...DEFAULT_TEST,
       ...data,
+      mostRecent: isFuture ? false : data.mostRecent,
       id: generateTestId(),
       createdAt: new Date().toISOString(),
       isArchived: false,
     };
     tests = [...tests, newTest];
+    this._supersedeOlderMostRecent(newTest);
     persist();
     return newTest;
   },
@@ -127,15 +157,32 @@ export const TestingRepository = {
     let updated = null;
     tests = tests.map((t) => {
       if (t.id !== id) return t;
-      updated = { ...t, ...changes };
+      const merged = { ...t, ...changes };
+      // Same future-date guard as create().
+      const isFuture = merged.date && new Date(merged.date) > new Date();
+      updated = isFuture ? { ...merged, mostRecent: false } : merged;
       return updated;
     });
+    if (updated) this._supersedeOlderMostRecent(updated);
     persist();
     return updated ? structuredClone({ ...DEFAULT_TEST, ...updated }) : null;
   },
 
   archive(id) {
     return this.update(id, { isArchived: true });
+  },
+
+  // ADDED — real ask: "no option to delete erroneous tests." Archive
+  // stays the default, correct choice for anything real that just
+  // isn't current anymore — this is specifically for a genuinely
+  // wrong entry (duplicate, mis-tapped, wrong record entirely), where
+  // keeping it around forever (even archived) is actively wrong, not
+  // just unwanted. Real removal, not soft-hide — the UI gates this
+  // behind its own explicit confirmation step, this function itself
+  // doesn't ask twice.
+  delete(id) {
+    tests = tests.filter((t) => t.id !== id);
+    persist();
   },
 
   // Attachment helpers — kept here rather than a separate repository

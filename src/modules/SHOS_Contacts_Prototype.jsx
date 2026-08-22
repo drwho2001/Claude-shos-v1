@@ -1298,7 +1298,7 @@ function describeAvailabilityRule(r) {
 // ── Contact Profile — same SectionCard treatment and reordered
 // Location & logistics as the edit sheet, plus the don't-meet-again
 // warning banner. ──
-function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }) {
+function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh, onNavigateToRecord }) {
   const contact = ContactRepository.getById(contactId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -1533,12 +1533,12 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
                   )}
                 </div>
                 {history.map((e) => (
-                  // Not tap-to-open — Contacts and Activity are separate
-                  // top-level modules in App.jsx's switcher with no
-                  // cross-module navigation plumbing yet. Listed here
-                  // read-only; wiring a real jump into Activity's detail
-                  // screen is a small follow-up, not done this pass.
-                  <div key={e.id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13 }}>
+                  // CHANGED — real ask: "linked encounter should be
+                  // actually linked — click and it takes you to it."
+                  // Real cross-module navigation now exists (see
+                  // App.jsx's navigateToRecord) — no longer read-only.
+                  <div key={e.id} onClick={() => onNavigateToRecord?.("activity", e.id)}
+                    style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13, cursor: onNavigateToRecord ? "pointer" : "default" }}>
                     <div style={{ color: T.textPrimary, fontWeight: 600 }}>{e.title || "Untitled encounter"}</div>
                     <div style={{ color: T.textSecondary, fontSize: 12 }}>{e.date ? new Date(e.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No date"}</div>
                   </div>
@@ -1675,7 +1675,7 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
   );
 }
 
-export default function ContactsModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
+export default function ContactsModule({ openAddOnMount = false, onConsumedQuickAdd, openRecordId, onConsumedRecordOpen, onNavigateToRecord } = {}) {
   const [contacts, setContacts] = useState(() => loadContacts());
   const refresh = () => setContacts(loadContacts());
   // ADDED 19 Aug 2026 — real undo/redo, same shared mechanism as
@@ -1705,6 +1705,14 @@ export default function ContactsModule({ openAddOnMount = false, onConsumedQuick
     if (openAddOnMount) {
       setEditingContact({});
       onConsumedQuickAdd?.();
+    }
+    // ADDED — real ask: real cross-module navigation, same mount-time
+    // pattern as the Quick Add effect right above — deep-links straight
+    // to a specific contact when arriving here via a tapped attendee
+    // from Encounters, instead of always landing on the plain list.
+    if (openRecordId) {
+      openProfile(openRecordId);
+      onConsumedRecordOpen?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1743,7 +1751,7 @@ export default function ContactsModule({ openAddOnMount = false, onConsumedQuick
           <ContactsList contacts={contacts} T={T} onOpen={openProfile} onAdd={() => setEditingContact({})} sortBy={sortBy} setSortBy={setSortBy} query={query} setQuery={setQuery}
             onOpenMyProfile={() => setShowMyProfile(true)} onOpenImportProfile={() => setShowImportProfile(true)} />
         ) : (
-          <ContactProfile contactId={activeContactId} T={T} onBack={backToList} onEdit={(id) => setEditingContact(ContactRepository.getById(id))} onOpenContact={openProfile} refresh={refresh} />
+          <ContactProfile contactId={activeContactId} T={T} onBack={backToList} onEdit={(id) => setEditingContact(ContactRepository.getById(id))} onOpenContact={openProfile} refresh={refresh} onNavigateToRecord={onNavigateToRecord} />
         )}
 
         {editingContact !== null && (

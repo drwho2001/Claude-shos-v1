@@ -51,6 +51,18 @@ export const CLINICIAN_OPTIONS = ["Lucy", "Jonathan", "Black doctor male", "Hayl
 // date field next to it says WHEN.
 // (FOLLOW_UP_TYPE_OPTIONS also moved — see comment above.)
 
+// ADDED — real ask: "allow for more than one" clinician. `clinician`
+// changed from a plain string to an array, but real existing data
+// (including Kane's own imported real records) still has it stored as
+// a plain string — this normalizes on every read, same defensive-
+// merge spirit already used everywhere else in this app (e.g. the
+// Kink Registry's own legacy-casing migration), so nothing needs a
+// one-time rewrite and old records keep working exactly as before.
+function normalizeClinician(visit) {
+  if (Array.isArray(visit.clinician)) return visit;
+  return { ...visit, clinician: visit.clinician ? [visit.clinician] : [] };
+}
+
 export const DEFAULT_CLINIC_VISIT = {
   title: "",
   date: null,
@@ -61,7 +73,7 @@ export const DEFAULT_CLINIC_VISIT = {
   // constrained <select> to a free-text field with suggestion chips
   // drawn from CLINICIAN_OPTIONS plus whatever's actually been typed
   // before. No data-shape change needed here.
-  clinician: "",
+  clinician: [],
   reasonForVisit: [],
   // CHANGED 19 Aug 2026 — real feedback batch: rephrased in the UI as
   // an explicit yes/no question rather than a plain toggle with a
@@ -138,12 +150,12 @@ function persist() {
 
 export const ClinicVisitsRepository = {
   getAll() {
-    return structuredClone(visits.map((v) => ({ ...DEFAULT_CLINIC_VISIT, ...v })));
+    return structuredClone(visits.map((v) => normalizeClinician({ ...DEFAULT_CLINIC_VISIT, ...v })));
   },
 
   getById(id) {
     const found = visits.find((v) => v.id === id);
-    return found ? structuredClone({ ...DEFAULT_CLINIC_VISIT, ...found }) : null;
+    return found ? structuredClone(normalizeClinician({ ...DEFAULT_CLINIC_VISIT, ...found })) : null;
   },
 
   // Every visit that references a given test — the read side of the
@@ -152,18 +164,18 @@ export const ClinicVisitsRepository = {
   // view).
   getByLinkedTest(testId) {
     return structuredClone(
-      visits.filter((v) => (v.linkedTestIds || []).includes(testId)).map((v) => ({ ...DEFAULT_CLINIC_VISIT, ...v }))
+      visits.filter((v) => (v.linkedTestIds || []).includes(testId)).map((v) => normalizeClinician({ ...DEFAULT_CLINIC_VISIT, ...v }))
     );
   },
 
   create(data) {
-    const newVisit = {
+    const newVisit = normalizeClinician({
       ...DEFAULT_CLINIC_VISIT,
       ...data,
       id: generateVisitId(),
       createdAt: new Date().toISOString(),
       isArchived: false,
-    };
+    });
     visits = [...visits, newVisit];
     persist();
     return newVisit;

@@ -505,6 +505,9 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
             <SelectField label="Foreskin fit" value={form.foreskinDetail} onChange={set("foreskinDetail")} options={FORESKIN_DETAIL_OPTIONS} T={T} />
           )}
           <SelectField label="Chastity status" value={form.chastityStatus} onChange={set("chastityStatus")} options={CHASTITY_OPTIONS} T={T} />
+          {/* ADDED — parity with the same descriptor already added to
+              Contacts' Chastity field. */}
+          <div style={{ fontSize: 11, color: T.textDisabled, marginTop: -6, marginBottom: 6 }}>Only relevant if chastity is something you're genuinely into — leave as N/A otherwise.</div>
           <MultiSelectChips label="Cummer — frequency" value={form.cummer} onChange={set("cummer")} options={CUMMER_FREQUENCY_OPTIONS} T={T} />
           <MultiSelectChips label="Cummer — volume" value={form.cummer} onChange={set("cummer")} options={CUMMER_VOLUME_OPTIONS} T={T} />
           <MultiSelectChips label="Cummer — style" value={form.cummer} onChange={set("cummer")} options={CUMMER_STYLE_OPTIONS} T={T} />
@@ -637,7 +640,7 @@ function ProfileDataView({ profile, T }) {
         <ReadRow label="Position" value={profile.sexualPosition} T={T} />
       </SectionCard>
       <SectionCard title="Chems" T={T}>
-        <ReadRow label="Known chems" value={chemNames} T={T} />
+        <ReadRow label="Known chems" value={chemNames.length > 0 ? chemNames : "None known"} T={T} />
       </SectionCard>
       <SectionCard title="Physical" T={T}>
         <ReadRow label="Length (penis)" value={profile.length} T={T} />

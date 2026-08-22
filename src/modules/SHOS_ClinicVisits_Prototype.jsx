@@ -141,32 +141,50 @@ function RelationPicker({ label, value, onChange, T, items, placeholder }) {
   );
 }
 
-// ADDED 19 Aug 2026 — real feedback batch: "Clinician should be free
-// text, not a fixed list, and not mandatory." Free-text input with
-// tappable suggestions drawn from CLINICIAN_OPTIONS plus whatever's
-// actually been typed on past visits — same "collect real historical
-// values as suggestions" pattern already used in Contacts (getKnownValues).
+// CHANGED — real ask: "allow for more than one." Was single free-text,
+// now a real multi-select tag picker — same underlying suggestion-chip
+// mechanism, just adds to an array instead of replacing one value.
 function getKnownClinicians() {
-  const typed = ClinicVisitsRepository.getAll().map((v) => v.clinician).filter(Boolean);
+  const typed = ClinicVisitsRepository.getAll().flatMap((v) => v.clinician || []).filter(Boolean);
   return Array.from(new Set([...CLINICIAN_OPTIONS, ...typed]));
 }
 function ClinicianField({ value, onChange, T }) {
   const known = useMemo(() => getKnownClinicians(), []);
-  const visibleSuggestions = known.filter((c) => c !== value).slice(0, 8);
+  const [draft, setDraft] = useState("");
+  const visibleSuggestions = known.filter((c) => !value.includes(c)).slice(0, 8);
+  const addClinician = (name) => {
+    const trimmed = name.trim();
+    if (trimmed && !value.includes(trimmed)) onChange([...value, trimmed]);
+    setDraft("");
+  };
+  const removeClinician = (name) => onChange(value.filter((c) => c !== name));
   return (
     <div style={{ padding: "8px 0" }}>
-      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Clinician (optional)</div>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Clinician(s) (optional)</div>
+      {value.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          {value.map((c) => (
+            <div key={c} onClick={() => removeClinician(c)}
+              style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, background: T.surfaceVariant, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              {c} <X size={11} />
+            </div>
+          ))}
+        </div>
+      )}
       {visibleSuggestions.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
           {visibleSuggestions.map((c) => (
-            <div key={c} onClick={() => onChange(c)}
+            <div key={c} onClick={() => addClinician(c)}
               style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
               {c}
             </div>
           ))}
         </div>
       )}
-      <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Lucy — leave blank if unknown"
+      <input value={draft} onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addClinician(draft); } }}
+        onBlur={() => addClinician(draft)}
+        placeholder="e.g. Lucy — leave blank if unknown"
         style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
     </div>
   );
@@ -695,7 +713,12 @@ function VisitsLanding({ onOpen, onAdd, T }) {
               {v.isFutureAppointment && <Calendar size={13} color={T.healthcareBlue} />}
             </div>
             <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>{formatDate(v.date)}</div>
-            {v.clinician && <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2 }}>{v.clinician}</div>}
+            {/* CHANGED — real bug caught before shipping: clinician is
+                now an array (multiple clinicians support), rendering
+                it directly would either show nothing (empty array is
+                truthy but has no content) or concatenate names with
+                no separator. */}
+            {v.clinician.length > 0 && <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2 }}>{v.clinician.join(", ")}</div>}
             {v.location && <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2 }}>{v.location}</div>}
           </div>
         ))}

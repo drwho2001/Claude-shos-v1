@@ -187,38 +187,46 @@ function RegistryTagPicker({ label, value, onChange, T, registry, placeholder })
 // Timeline, exposureWindows.js) already expects `resultIds` as an
 // array — this only changes what the UI lets you put IN it, not the
 // underlying data shape, so nothing downstream needed touching.
-function RegistrySingleResultPicker({ label, value, onChange, T, registry, placeholder }) {
+// CHANGED — real ask: "Result should allow multiple options, if
+// positive (is positive throat and rectal)." Confirmed first that
+// every real consumer of `resultIds` app-wide (Clinic Card, Clinic
+// Visits, Timeline) already uses `.map()`, genuinely prepared for more
+// than one — the picker itself was the ONLY thing artificially
+// restricting this to a single value, so converting it is a safe,
+// well-isolated change, not a ripple into other logic.
+function RegistryMultiResultPicker({ label, value, onChange, T, registry, placeholder }) {
   const [draft, setDraft] = useState("");
   const listId = `registry-result-${label.replace(/\s+/g, "-")}`;
   const allEntries = registry.getAll().filter((e) => !e.isArchived);
-  const currentId = value[0] || null;
-  const currentName = currentId ? (allEntries.find((e) => e.id === currentId)?.name || registry.getById(currentId)?.name || "?") : null;
-  const visibleSuggestions = allEntries.filter((e) => e.id !== currentId).slice(0, 10);
+  const currentNames = value.map((id) => allEntries.find((e) => e.id === id)?.name || registry.getById(id)?.name).filter(Boolean);
+  const visibleSuggestions = allEntries.filter((e) => !value.includes(e.id)).slice(0, 10);
 
-  const commit = () => {
-    const raw = draft.trim();
-    if (!raw) return;
-    const entry = registry.findOrCreate(raw);
-    if (entry) onChange([entry.id]);
+  const addResult = (raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const entry = registry.findOrCreate(trimmed);
+    if (entry && !value.includes(entry.id)) onChange([...value, entry.id]);
     setDraft("");
   };
-  const tapSuggestion = (entry) => onChange([entry.id]);
+  const removeResult = (id) => onChange(value.filter((v) => v !== id));
 
   return (
     <div style={{ padding: "8px 0" }}>
       <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
-      {currentName && (
+      {value.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-          <div onClick={() => onChange([])}
-            style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, background: T.surfaceVariant, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-            {currentName} <X size={11} />
-          </div>
+          {value.map((id, i) => (
+            <div key={id} onClick={() => removeResult(id)}
+              style={{ padding: "4px 8px", borderRadius: radius.full, fontSize: 12, background: T.surfaceVariant, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              {currentNames[i] || "?"} <X size={11} />
+            </div>
+          ))}
         </div>
       )}
       {visibleSuggestions.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
           {visibleSuggestions.map((e) => (
-            <div key={e.id} onClick={() => tapSuggestion(e)}
+            <div key={e.id} onClick={() => onChange([...value, e.id])}
               style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
               {e.name}
             </div>
@@ -226,9 +234,9 @@ function RegistrySingleResultPicker({ label, value, onChange, T, registry, place
         </div>
       )}
       <input list={listId} value={draft} onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commit(); } }}
-        onBlur={commit}
-        placeholder={placeholder || "Pick or type a result"}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addResult(draft); } }}
+        onBlur={() => addResult(draft)}
+        placeholder={placeholder || "Pick or type a result — add more than one if positive at multiple sites"}
         style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 13, boxSizing: "border-box" }} />
       <datalist id={listId}>{allEntries.map((e) => <option key={e.id} value={e.name} />)}</datalist>
     </div>
@@ -379,7 +387,7 @@ function TestEditSheet({ testId, onClose, onSaved, onBeforeEdit, onAfterEdit, T 
               REPLACES rather than adds to the existing selection, so
               a retroactive Pending → Positive update genuinely
               updates the result instead of leaving both. */}
-          <RegistrySingleResultPicker label="Result" value={form.resultIds} onChange={set("resultIds")} registry={ResultsRegistry} T={T} placeholder="e.g. Positive, Negative" />
+          <RegistryMultiResultPicker label="Result" value={form.resultIds} onChange={set("resultIds")} registry={ResultsRegistry} T={T} placeholder="e.g. Positive, Negative" />
           {/* CHANGED 19 Aug 2026 — relabeled per real feedback: this
               date specifically means "when treatment happened, if
               positive" — not a generic catch-all follow-up date. */}
@@ -433,11 +441,21 @@ function TestEditSheet({ testId, onClose, onSaved, onBeforeEdit, onAfterEdit, T 
 // ── Detail view ──
 function TestDetail({ testId, onBack, onEdit, T }) {
   const [test, setTest] = useState(() => TestingRepository.getById(testId));
+  // ADDED — real ask: "hide result until result date... similar to
+  // Dom/sub half-toggle." Soft-masked by default rather than fully
+  // hidden with no way to see it — a real result is real data, not
+  // something to permanently block, just not show by default before
+  // it's genuinely expected back.
+  const [revealEarly, setRevealEarly] = useState(false);
+  // ADDED — real ask: real delete, with a confirmation step so a stray
+  // tap can't silently destroy a record.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   if (!test) return null;
 
   const organismNames = test.organismIds.map((id) => OrganismRegistry.getById(id)?.name).filter(Boolean);
   const resultNames = test.resultIds.map((id) => ResultsRegistry.getById(id)?.name).filter(Boolean);
   const isPositive = resultNames.some((r) => r.toLowerCase() === "positive");
+  const resultPending = test.resultDate && new Date(test.resultDate) > new Date() && !revealEarly;
   // ADDED 19 Aug 2026 — real data, previously built but never
   // displayed. See the import comment above for the full reasoning.
   const linkedVisits = ClinicVisitsRepository.getByLinkedTest(testId);
@@ -446,12 +464,27 @@ function TestDetail({ testId, onBack, onEdit, T }) {
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px" }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onBack} />
-        <span style={{ fontSize: 13, fontWeight: 700, color: T.healthcareBlue, cursor: "pointer" }} onClick={() => onEdit(testId)}>Edit</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.healthcareBlue, cursor: "pointer" }} onClick={() => onEdit(testId)}>Edit</span>
+          <Trash2 size={17} color={T.actionRed} style={{ cursor: "pointer" }} onClick={() => setConfirmDelete(true)} />
+        </div>
       </div>
+
+      {confirmDelete && (
+        <div style={{ margin: "0 16px 12px", padding: 12, borderRadius: radius.sm, border: `1px solid ${T.actionRed}`, background: `${T.actionRed}11` }}>
+          <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>
+            This permanently deletes the record — unlike archiving, there's no getting it back. Only use this for a genuinely wrong entry.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: 10, borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSecondary, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => { TestingRepository.delete(testId); onBack(); }} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: T.actionRed, color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Delete permanently</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ padding: "0 16px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-          <span style={{ width: 10, height: 10, borderRadius: radius.full, background: isPositive ? T.actionRed : T.healthcareBlue, display: "inline-block" }} />
+          <span style={{ width: 10, height: 10, borderRadius: radius.full, background: (isPositive && !resultPending) ? T.actionRed : T.healthcareBlue, display: "inline-block" }} />
           <span style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary }}>{test.title || "Untitled test"}</span>
         </div>
         <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 20, fontFamily: "'JetBrains Mono', monospace" }}>{formatDate(test.date)}</div>
@@ -466,7 +499,14 @@ function TestDetail({ testId, onBack, onEdit, T }) {
 
         <SectionCard title="Result" T={T}>
           <ReadRow label="Organism" value={organismNames} T={T} />
-          <ReadRow label="Result" value={resultNames} T={T} />
+          {resultPending ? (
+            <div onClick={() => setRevealEarly(true)} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13, cursor: "pointer" }}>
+              <span style={{ color: T.textSecondary }}>Result</span>
+              <span style={{ color: T.textDisabled, fontStyle: "italic" }}>Pending — expected {formatDate(test.resultDate)}. Tap to reveal anyway.</span>
+            </div>
+          ) : (
+            <ReadRow label="Result" value={resultNames} T={T} />
+          )}
           <ReadRow label="Date of treatment" value={formatDate(test.followUpActionedDate) !== "—" ? formatDate(test.followUpActionedDate) : ""} T={T} />
           <ReadRow label="Written plan" value={test.writtenPlan} T={T} />
           {(() => {
@@ -542,7 +582,8 @@ function TestingLanding({ onOpen, onAdd, T }) {
         )}
         {sorted.map((t) => {
           const resultNames = t.resultIds.map((id) => ResultsRegistry.getById(id)?.name).filter(Boolean);
-          const isPositive = resultNames.some((r) => r.toLowerCase() === "positive");
+          const resultPending = t.resultDate && new Date(t.resultDate) > new Date();
+          const isPositive = !resultPending && resultNames.some((r) => r.toLowerCase() === "positive");
           return (
             <div key={t.id} onClick={() => onOpen(t.id)}
               style={{ background: T.surface, border: `1px solid ${isPositive ? T.actionRed : T.border}`, borderRadius: radius.md, padding: 14, cursor: "pointer" }}>
@@ -558,7 +599,12 @@ function TestingLanding({ onOpen, onAdd, T }) {
               {t.setting && (
                 <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2 }}>{t.setting}</div>
               )}
-              {resultNames.length > 0 && (
+              {/* CHANGED — real ask: "hide result until result date" —
+                  the list card was leaking the real result before the
+                  detail screen's own masking even applied. */}
+              {resultPending ? (
+                <div style={{ fontSize: 12, color: T.textDisabled, marginLeft: 16, marginTop: 2, fontStyle: "italic" }}>Pending — expected {formatDate(t.resultDate)}</div>
+              ) : resultNames.length > 0 && (
                 <div style={{ fontSize: 12, color: isPositive ? T.actionRed : T.textSecondary, marginLeft: 16, marginTop: 2, fontWeight: isPositive ? 700 : 400 }}>{resultNames.join(", ")}</div>
               )}
             </div>

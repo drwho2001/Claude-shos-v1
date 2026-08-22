@@ -583,7 +583,7 @@ function ActivityLanding({ T, onOpenEncounter, onAdd }) {
 }
 
 // ── 3b. Activity Details ──
-function ActivityDetails({ T, encounterId, onBack, onEdit }) {
+function ActivityDetails({ T, encounterId, onBack, onEdit, onNavigateToRecord }) {
   const [encounter, setEncounter] = useState(() => EncounterRepository.getById(encounterId));
   const [contacts] = useState(loadContacts);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -649,7 +649,11 @@ function ActivityDetails({ T, encounterId, onBack, onEdit }) {
           {encounter.attendeeIds.length === 0
             ? <div style={{ fontSize: 13, color: T.textDisabled, fontStyle: "italic", padding: "8px 0" }}>None recorded.</div>
             : encounter.attendeeIds.map((id) => (
-              <div key={id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13, color: T.encountersPink, fontWeight: 600 }}>
+              // CHANGED — real ask: "attendees should link through to
+              // contact card and open if clicked." Real cross-module
+              // navigation now exists (see App.jsx's navigateToRecord).
+              <div key={id} onClick={() => onNavigateToRecord?.("contacts", id)}
+                style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13, color: T.encountersPink, fontWeight: 600, cursor: onNavigateToRecord ? "pointer" : "default" }}>
                 {contactName(contacts, id)}
               </div>
             ))}
@@ -823,7 +827,7 @@ function EditUndoToast({ toast, onUndo, onRedo, T }) {
   );
 }
 
-export default function EncountersModule({ openAddOnMount = false, onConsumedQuickAdd } = {}) {
+export default function EncountersModule({ openAddOnMount = false, onConsumedQuickAdd, openRecordId, onConsumedRecordOpen, onNavigateToRecord } = {}) {
   const [screen, setScreen] = useState({ name: "landing" });
   // ADDED 19 Aug 2026 — see editUndoHelpers.js for the full reasoning.
   // One hook instance per module, per Kane's explicit scoping rule.
@@ -835,6 +839,14 @@ export default function EncountersModule({ openAddOnMount = false, onConsumedQui
     if (openAddOnMount) {
       setScreen({ name: "edit", id: null });
       onConsumedQuickAdd?.();
+    }
+    // ADDED — real ask: real cross-module navigation, same mount-time
+    // pattern as Contacts' own version — deep-links straight to a
+    // specific encounter when arriving here via a tapped record from
+    // Contacts' Timeline, instead of always landing on the plain list.
+    if (openRecordId) {
+      setScreen({ name: "detail", id: openRecordId });
+      onConsumedRecordOpen?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -861,7 +873,8 @@ export default function EncountersModule({ openAddOnMount = false, onConsumedQui
     screenContent = (
       <ActivityDetails T={LIGHT} encounterId={screen.id}
         onBack={() => setScreen({ name: "landing" })}
-        onEdit={(id) => setScreen({ name: "edit", id })} />
+        onEdit={(id) => setScreen({ name: "edit", id })}
+        onNavigateToRecord={onNavigateToRecord} />
     );
   } else if (screen.name === "edit") {
     screenContent = (

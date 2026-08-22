@@ -152,6 +152,7 @@ function VaccineField({ value, onChange, options, onAddNew, T }) {
       )}
       <input value={value ?? ""} onChange={(e) => onChange(e.target.value)}
         onBlur={() => { if (value && value.trim()) onAddNew(value.trim()); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && value && value.trim()) { e.preventDefault(); onAddNew(value.trim()); e.target.blur(); } }}
         placeholder="e.g. MENACWY"
         style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
     </div>
