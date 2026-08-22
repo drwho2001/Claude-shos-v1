@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Plus, ChevronLeft, Check, Archive, ArchiveRestore, RefreshCcw } from "lucide-react";
+import { Plus, ChevronLeft, Check, Archive, ArchiveRestore, RefreshCcw, Trash2 } from "lucide-react";
 import { SymptomLogRepository, DEFAULT_SYMPTOM_ENTRY, SEVERITY_OPTIONS } from "../repositories/symptomLogRepository";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
 import { EncounterRepository } from "../repositories/encounterRepository";
@@ -234,6 +234,9 @@ function EntrySheet({ entry, onSave, onClose, T }) {
 
 function EntryDetail({ entryId, onBack, onEdit, T }) {
   const [entry, setEntry] = useState(() => SymptomLogRepository.getById(entryId));
+  // ADDED — real ask: real delete, with a confirmation step, same
+  // pattern already proven for Testing/Vaccinations.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   if (!entry) return null;
   const symptomName = SymptomsRegistry.getById(entry.symptomId)?.name;
   const encounterNames = entry.relatedEncounterIds.map((id) => {
@@ -250,8 +253,22 @@ function EntryDetail({ entryId, onBack, onEdit, T }) {
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px" }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onBack} />
-        <span style={{ fontSize: 13, fontWeight: 700, color: T.healthcareBlue, cursor: "pointer" }} onClick={() => onEdit(entryId)}>Edit</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.healthcareBlue, cursor: "pointer" }} onClick={() => onEdit(entryId)}>Edit</span>
+          <Trash2 size={17} color={T.actionRed} style={{ cursor: "pointer" }} onClick={() => setConfirmDelete(true)} />
+        </div>
       </div>
+      {confirmDelete && (
+        <div style={{ margin: "0 16px 12px", padding: 12, borderRadius: radius.sm, border: `1px solid ${T.actionRed}`, background: `${T.actionRed}11` }}>
+          <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>
+            This permanently deletes the record — unlike archiving, there's no getting it back. Only use this for a genuinely wrong entry.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: 10, borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSecondary, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => { SymptomLogRepository.delete(entryId); onBack(); }} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: T.actionRed, color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Delete permanently</button>
+          </div>
+        </div>
+      )}
       <div style={{ padding: "0 16px 100px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
           <span style={{ width: 10, height: 10, borderRadius: radius.full, background: isActive ? severityColor(entry.severity, T) : T.actionGreen, display: "inline-block" }} />

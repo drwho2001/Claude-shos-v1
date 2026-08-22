@@ -143,7 +143,11 @@ function AdherencePill({ label, hit, expected, T }) {
   );
 }
 
-function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequested, onOpenCorrection, onEditMedication, onMoveUp, onMoveDown, onArchive, isFirst, isLast, justCompleted, T, darkMode, cardRef, highlighted, menuOpen, onToggleMenu, snoozedUntil }) {
+function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequested, onOpenCorrection, onEditMedication, onMoveUp, onMoveDown, onArchive, onDelete, isFirst, isLast, justCompleted, T, darkMode, cardRef, highlighted, menuOpen, onToggleMenu, snoozedUntil }) {
+  // ADDED — real ask: local to this card, gated behind the menu
+  // already being open for this specific medication — doesn't need
+  // the app-wide single-open tracking `menuOpen` uses.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const stock = computeStock(med);
   const adherence = computeAdherence(med);
   const lastDose = [...med.logs].filter((l) => l.type === "dose" && !l.voided).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
@@ -210,6 +214,9 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
             <div onClick={() => { onArchive(med.id); onToggleMenu(null); }} style={{ padding: "10px 14px", fontSize: 13, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${T.border}` }}>
               <Archive size={14} color={T.textSecondary} /> Archive medication
             </div>
+            <div onClick={() => { setConfirmDelete(true); onToggleMenu(null); }} style={{ padding: "10px 14px", fontSize: 13, color: T.actionRed, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${T.border}` }}>
+              <Trash2 size={14} /> Delete permanently
+            </div>
             {!isFirst && (
               <div onClick={() => { onMoveUp(med.id); onToggleMenu(null); }} style={{ padding: "10px 14px", fontSize: 13, color: T.textPrimary, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${T.border}` }}>
                 <ArrowUp size={14} color={T.textSecondary} /> Move up
@@ -222,6 +229,18 @@ function MedicationCard({ med, onLogDose, onLogRefill, onLogWaste, onMarkRequest
             )}
           </div>
         </>
+      )}
+
+      {confirmDelete && (
+        <div style={{ margin: "0 0 12px", padding: 12, borderRadius: radius.sm, border: `1px solid ${T.actionRed}`, background: `${T.actionRed}11` }}>
+          <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>
+            This permanently deletes {med.name} — unlike archiving, there's no getting it back. Only use this for a genuinely erroneous entry.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => onDelete(med.id)} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: T.actionRed, color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Delete permanently</button>
+            <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: 10, borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSecondary, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+          </div>
+        </div>
       )}
 
       {stock.tracked ? (
@@ -998,6 +1017,9 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
   // permanent delete. History (Log tab) stays visible regardless; only Registry/Inventory hide it.
   const archiveMedication = (id) => { MedicationRepository.archive(id); refreshMeds(); };
   const unarchiveMedication = (id) => { MedicationRepository.unarchive(id); refreshMeds(); };
+  // ADDED — real ask: real delete, with a confirmation step, same
+  // pattern already proven across every other module this session.
+  const deleteMedication = (id) => { MedicationRepository.delete(id); refreshMeds(); };
 
   const takeReminder = () => { logDose(dueReminder.id); flashComplete(dueReminder.id, "logged"); setDueReminder(null); };
   const snoozeReminder = () => { setSnoozedUntil((prev) => ({ ...prev, [dueReminder.id]: new Date(Date.now() + 30 * 60000).toISOString() })); setDueReminder(null); };
@@ -1166,6 +1188,7 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
                   onMoveUp={(id) => moveMedication(id, -1)}
                   onMoveDown={(id) => moveMedication(id, 1)}
                   onArchive={archiveMedication}
+                  onDelete={deleteMedication}
                   onToggleMenu={(id) => setMenuOpenId((cur) => (cur === id ? null : id))}
                   onLogDose={logDose}
                   onLogRefill={(id) => setSheet({ med: meds.find((m) => m.id === id), mode: "refill" })}

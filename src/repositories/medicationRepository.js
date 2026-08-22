@@ -292,6 +292,13 @@ export const MedicationRepository = {
     return this.update(id, { isArchived: true });
   },
 
+  // ADDED — real ask: real delete, with a confirmation step, same
+  // pattern already proven across every other module this session.
+  delete(id) {
+    medications = medications.filter((m) => m.id !== id);
+    persist();
+  },
+
   unarchive(id) {
     return this.update(id, { isArchived: false });
   },

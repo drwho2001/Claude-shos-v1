@@ -196,6 +196,15 @@ export const ClinicVisitsRepository = {
     return this.update(id, { isArchived: true });
   },
 
+  // ADDED — real ask: "no delete option" — same reasoning as Testing/
+  // Vaccinations/Symptom Log's own delete(): archive stays correct for
+  // anything real that's just outdated, this is specifically for a
+  // genuinely wrong entry.
+  delete(id) {
+    visits = visits.filter((v) => v.id !== id);
+    persist();
+  },
+
   addAttachment(visitId, { title, type, fileDataUrl }) {
     const attachment = {
       id: generateAttachmentId(),

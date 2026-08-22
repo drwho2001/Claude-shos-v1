@@ -1302,6 +1302,9 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh, 
   const contact = ContactRepository.getById(contactId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  // ADDED — real ask: "not just edit or archive contact but also
+  // option to delete permanently."
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // ADDED 19 Aug 2026 — Anonymise mode, same read pattern as ContactsList.
   const [privacy] = useState(() => PrivacySettingsRepository.getSettings());
   const anonymise = privacy.anonymiseModeActive;
@@ -1345,6 +1348,9 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh, 
                 <div onClick={() => { setConfirmArchive(true); setMenuOpen(false); }} style={{ padding: "10px 14px", fontSize: 13, color: T.actionRed, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${T.border}` }}>
                   <Archive size={14} /> Archive contact
                 </div>
+                <div onClick={() => { setConfirmDelete(true); setMenuOpen(false); }} style={{ padding: "10px 14px", fontSize: 13, color: T.actionRed, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderTop: `1px solid ${T.border}` }}>
+                  <Trash2 size={14} /> Delete permanently
+                </div>
               </div>
             </>
           )}
@@ -1370,6 +1376,18 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh, 
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={archive} style={{ ...btnStyle(T.actionRed, "filled"), padding: "8px 10px" }}>Confirm archive</button>
             <button onClick={() => setConfirmArchive(false)} style={{ ...btnStyle(T.textSecondary, "outline"), padding: "8px 10px" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <div style={{ margin: "0 16px 12px", padding: 12, borderRadius: radius.sm, border: `1px solid ${T.actionRed}`, background: `${T.actionRed}11` }}>
+          <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>
+            This permanently deletes the contact — unlike archiving, there's no getting it back. Only use this for a genuinely erroneous or unwelcome entry.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { ContactRepository.delete(contact.id); onBack(); }} style={{ ...btnStyle(T.actionRed, "filled"), padding: "8px 10px" }}>Delete permanently</button>
+            <button onClick={() => setConfirmDelete(false)} style={{ ...btnStyle(T.textSecondary, "outline"), padding: "8px 10px" }}>Cancel</button>
           </div>
         </div>
       )}

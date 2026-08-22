@@ -113,6 +113,14 @@ export const SymptomLogRepository = {
     return this.update(id, { isArchived: true });
   },
 
+  // ADDED — real ask: "no delete option" — same reasoning as Testing's
+  // own delete(): archive stays correct for anything real that's just
+  // outdated, this is specifically for a genuinely wrong entry.
+  delete(id) {
+    entries = entries.filter((e) => e.id !== id);
+    persist();
+  },
+
   unarchive(id) {
     return this.update(id, { isArchived: false });
   },

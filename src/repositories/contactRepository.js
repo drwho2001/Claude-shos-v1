@@ -400,6 +400,16 @@ export const ContactRepository = {
     return this.update(id, { isArchived: true });
   },
 
+  // ADDED — real ask: "not just edit or archive contact but also
+  // option to delete permanently" — the exact original wording this
+  // whole feature traces back to. Same reasoning as every other
+  // module's delete() this session: archive stays correct for
+  // anything real, this is for a genuinely wrong/unwanted entry.
+  delete(id) {
+    contacts = contacts.filter((c) => c.id !== id);
+    persist();
+  },
+
   unarchive(id) {
     return this.update(id, { isArchived: false });
   },

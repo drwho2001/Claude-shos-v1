@@ -13,7 +13,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 // ADDED 19 Aug 2026 — draft autosave, real fix for in-progress edits
 // being lost on refresh. See draftStorage.js for the full reasoning.
 import { saveDraft, loadDraft, clearDraft } from "../storage/draftStorage";
-import { Plus, ChevronLeft, MoreVertical, X, Archive, Users, MapPin, Heart, Check, RefreshCcw } from "lucide-react";
+import { Plus, ChevronLeft, MoreVertical, X, Archive, Users, MapPin, Heart, Check, RefreshCcw, Trash2 } from "lucide-react";
 import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
   EncounterRepository, DEFAULT_ENCOUNTER,
@@ -587,6 +587,9 @@ function ActivityDetails({ T, encounterId, onBack, onEdit, onNavigateToRecord })
   const [encounter, setEncounter] = useState(() => EncounterRepository.getById(encounterId));
   const [contacts] = useState(loadContacts);
   const [menuOpen, setMenuOpen] = useState(false);
+  // ADDED — real ask: real delete, with a confirmation step, same
+  // pattern already proven across every other module this session.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   if (!encounter) return null;
 
   // Resolves an array of registry IDs to their display names — used
@@ -625,10 +628,25 @@ function ActivityDetails({ T, encounterId, onBack, onEdit, onNavigateToRecord })
               <div onClick={archive} style={{ padding: "10px 14px", fontSize: 13, cursor: "pointer", color: T.actionRed, display: "flex", alignItems: "center", gap: 6 }}>
                 <Archive size={14} /> {encounter.isArchived ? "Unarchive" : "Archive"}
               </div>
+              <div onClick={() => { setMenuOpen(false); setConfirmDelete(true); }} style={{ padding: "10px 14px", fontSize: 13, cursor: "pointer", color: T.actionRed, display: "flex", alignItems: "center", gap: 6, borderTop: `1px solid ${T.border}` }}>
+                <Trash2 size={14} /> Delete permanently
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {confirmDelete && (
+        <div style={{ margin: "0 16px 12px", padding: 12, borderRadius: radius.sm, border: `1px solid ${T.actionRed}`, background: `${T.actionRed}11` }}>
+          <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 8 }}>
+            This permanently deletes the record — unlike archiving, there's no getting it back. Only use this for a genuinely wrong entry.
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setConfirmDelete(false)} style={{ flex: 1, padding: 10, borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSecondary, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => { EncounterRepository.delete(encounter.id); onBack(); }} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: T.actionRed, color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Delete permanently</button>
+          </div>
+        </div>
+      )}
 
       <div style={{ padding: "0 16px" }}>
         {encounter.isArchived && (

@@ -317,6 +317,15 @@ export const EncounterRepository = {
     return this.update(id, { isArchived: true });
   },
 
+  // ADDED — real ask: "no delete option" — same reasoning as every
+  // other module's own delete() this session: archive stays correct
+  // for anything real that's just outdated, this is specifically for
+  // a genuinely wrong entry.
+  delete(id) {
+    encounters = encounters.filter((e) => e.id !== id);
+    persist();
+  },
+
   unarchive(id) {
     return this.update(id, { isArchived: false });
   },
