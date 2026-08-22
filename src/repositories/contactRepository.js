@@ -180,7 +180,7 @@ export const DEFAULT_CONTACT = {
   bdsmRole: [], sexualPosition: [],
   // ADDED 18 Aug 2026 — foreskinDetail: only meaningful when foreskin
   // is "Uncircumcised" (see FORESKIN_DETAIL_OPTIONS above).
-  length: "", thickness: "", foreskin: "", foreskinDetail: "", chastityStatus: "", cummer: [],
+  length: "", thickness: "", foreskin: "", foreskinDetail: "", chastityStatus: "N/A", cummer: [],
   knownPrepDoxy: [], lastTestedDate: "",
   notes: "",
   linkedContactIds: [],

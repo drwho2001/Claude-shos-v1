@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Plus, ChevronLeft, Check, Archive, ArchiveRestore, RefreshCcw } from "lucide-react";
 import { SymptomLogRepository, DEFAULT_SYMPTOM_ENTRY, SEVERITY_OPTIONS } from "../repositories/symptomLogRepository";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
@@ -181,7 +181,17 @@ function EntrySheet({ entry, onSave, onClose, T }) {
     if (draft) return draft.data;
     return entry ? { ...entry } : { ...DEFAULT_SYMPTOM_ENTRY, dateStarted: new Date().toISOString().slice(0, 10) };
   });
-  useEffect(() => { saveDraft(draftKey, form); }, [form]);
+  // CHANGED — real bug fix, same as Encounters: fired on the very
+  // first render too, immediately autosaving the pristine, untouched
+  // default form the instant this sheet opened — so just opening and
+  // closing it with zero real edits left a draft behind, later shown
+  // as a false "Restored unsaved changes" prompt. Skips the initial
+  // mount with a ref, only saves once the form has genuinely changed.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    saveDraft(draftKey, form);
+  }, [form]);
   const set = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
   const canSave = form.title.trim().length > 0;
   const encounters = useMemo(() => EncounterRepository.getAll().map((e) => ({ id: e.id, name: `${e.title || e.encounterType || "Encounter"} · ${formatDate(e.date)}` })), []);
@@ -299,7 +309,11 @@ function SymptomLogLanding({ onOpen, onAdd, T }) {
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ padding: "18px 16px 2px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Symptom Log</span>
-        <Plus size={22} color={T.healthcareBlue} style={{ cursor: "pointer" }} onClick={onAdd} />
+      </div>
+      {/* CHANGED — same real fix as Vaccinations: floating bottom-right,
+          module-colored, matching every other module's pattern. */}
+      <div onClick={onAdd} style={{ position: "fixed", bottom: 90, right: 20, width: 56, height: 56, borderRadius: 999, background: T.healthcareBlue, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)", zIndex: 20 }}>
+        <Plus size={24} />
       </div>
       <div style={{ padding: "12px 16px 100px" }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.textSecondary, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Active ({active.length})</div>

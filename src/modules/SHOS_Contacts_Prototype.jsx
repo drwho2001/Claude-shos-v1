@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Plus, Search, ChevronLeft, MoreVertical, X, Archive, Settings2, Users,
   Phone, Ghost, Globe, MessageCircle, Car, AlertTriangle, Trash2, Link2,
-  Upload, Download, Check, User, Home, MapPin, EyeOff, RefreshCcw,
+  Upload, Download, Check, User, Home, MapPin, EyeOff, Eye, RefreshCcw,
 } from "lucide-react";
 import { useEditUndo } from "../calculations/editUndoHelpers";
 import {
@@ -33,7 +33,7 @@ import { contactEncounterSummary, sortByDateDesc, formatRelativeDate } from "../
 // modules — Stated kinks/Limits/Known chems below switch from freeform
 // TagInput to real registry-linked pickers.
 import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym, analyzeKinkEntry, getKinkRoleOptions } from "../registries/kinkRegistry";
-import { ChemsRegistry } from "../registries/chemsRegistry";
+import { ChemsRegistry, resolveChemSynonym } from "../registries/chemsRegistry";
 // ADDED 18 Aug 2026 — Import Shared Profile moved here from My Profile:
 // importing creates a new Contact, so it belongs where Contacts are
 // managed. Deliberately only imports the pure parse/create functions,
@@ -1051,7 +1051,15 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
     return contact ? { ...contact } : { ...DEFAULT_CONTACT };
   });
   const [draftRestored] = useState(() => !!loadDraft(draftKey));
+  // CHANGED — real bug fix, same as Encounters: fired on the very
+  // first render too, immediately autosaving the pristine, untouched
+  // default form the instant this sheet opened — so just opening and
+  // closing it with zero real edits left a draft behind, later shown
+  // as a false "Restored unsaved changes" prompt. Skips the initial
+  // mount with a ref, only saves once the form has genuinely changed.
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     saveDraft(draftKey, form);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
@@ -1215,7 +1223,7 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
             Registry architecturally separate (neutral grey domain, not
             kink-red, per Doc 2), so the app mirrors that distinction. */}
         <SectionCard T={T} title="Chems">
-          <RegistryTagPicker T={T} label="Known chems" value={form.knownChems} onChange={set("knownChems")} registry={ChemsRegistry} placeholder="e.g. Alcohol, Weed, Poppers, Coke, LSD" />
+          <RegistryTagPicker T={T} label="Known chems" value={form.knownChems} onChange={set("knownChems")} registry={ChemsRegistry} placeholder="e.g. Alcohol, Weed, Poppers, Coke, LSD" resolveSynonym={resolveChemSynonym} />
         </SectionCard>
 
         <SectionCard T={T} title="Physical & health">
@@ -1231,6 +1239,9 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
             <SelectField T={T} label="Foreskin fit" value={form.foreskinDetail} onChange={set("foreskinDetail")} options={FORESKIN_DETAIL_OPTIONS} />
           )}
           <SelectField T={T} label="Chastity status" value={form.chastityStatus} onChange={set("chastityStatus")} options={CHASTITY_OPTIONS} />
+          {/* ADDED — real ask: a short descriptor, since "N/A" alone
+              doesn't explain the choice being made. */}
+          <div style={{ fontSize: 11, color: T.textDisabled, marginTop: -6, marginBottom: 6 }}>Only relevant if chastity is something they're genuinely into — leave as N/A otherwise.</div>
           <MultiSelectChips T={T} label="Cummer — frequency" value={form.cummer} onChange={set("cummer")} options={CUMMER_FREQUENCY_OPTIONS} />
           <MultiSelectChips T={T} label="Cummer — volume" value={form.cummer} onChange={set("cummer")} options={CUMMER_VOLUME_OPTIONS} />
           <MultiSelectChips T={T} label="Cummer — style" value={form.cummer} onChange={set("cummer")} options={CUMMER_STYLE_OPTIONS} />
@@ -1260,13 +1271,21 @@ function ContactEditSheet({ contact, contacts, onSave, onClose, refresh, T }) {
   );
 }
 
+// ADDED — real ask: "have option to toggle blank fields — to see
+// what's missing, on contact card." Implemented as Context rather than
+// a prop threaded through all 32 real ReadRow call sites in this file
+// — same real behavior, far smaller real diff.
+const ShowBlankFieldsContext = React.createContext(false);
+
 function ReadRow({ label, value, T }) {
-  if (value === "" || value == null || (Array.isArray(value) && value.length === 0) || value === false) return null;
-  const display = Array.isArray(value) ? value.join(", ") : value === true ? "Yes" : value;
+  const showBlank = React.useContext(ShowBlankFieldsContext);
+  const isEmpty = value === "" || value == null || (Array.isArray(value) && value.length === 0) || value === false;
+  if (isEmpty && !showBlank) return null;
+  const display = isEmpty ? "— not set" : (Array.isArray(value) ? value.join(", ") : value === true ? "Yes" : value);
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: `1px solid ${T.border}`, fontSize: 13 }}>
       <span style={{ color: T.textSecondary }}>{label}</span>
-      <span style={{ color: T.textPrimary, fontWeight: 500, textAlign: "right" }}>{display}</span>
+      <span style={{ color: isEmpty ? T.textDisabled : T.textPrimary, fontWeight: isEmpty ? 400 : 500, fontStyle: isEmpty ? "italic" : "normal", textAlign: "right" }}>{display}</span>
     </div>
   );
 }
@@ -1287,6 +1306,9 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
   const [privacy] = useState(() => PrivacySettingsRepository.getSettings());
   const anonymise = privacy.anonymiseModeActive;
   const hideFurther = anonymise && privacy.hideFurtherEnabled;
+  // ADDED — real ask: toggle to reveal blank fields, so it's obvious
+  // what's actually missing rather than silently absent.
+  const [showBlankFields, setShowBlankFields] = useState(false);
   if (!contact) return null;
 
   const archive = () => { ContactRepository.archive(contact.id); refresh(); onBack(); };
@@ -1294,6 +1316,7 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
   const methods = getContactableVia(contact);
 
   return (
+    <ShowBlankFieldsContext.Provider value={showBlankFields}>
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 16px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1305,7 +1328,12 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
               a real, isolated slip, not a deliberate choice. */}
           <span style={{ fontSize: 20, fontWeight: 700, color: T.textPrimary }}>{displayName(contact)}</span>
         </div>
-        <div style={{ position: "relative" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* ADDED — real ask: show-blank-fields toggle. */}
+          <div onClick={() => setShowBlankFields((v) => !v)} title={showBlankFields ? "Hide blank fields" : "Show blank fields"} style={{ cursor: "pointer" }}>
+            {showBlankFields ? <Eye size={19} color={T.contactsTeal} /> : <EyeOff size={19} color={T.textSecondary} />}
+          </div>
+          <div style={{ position: "relative" }}>
           <MoreVertical size={20} color={T.textSecondary} style={{ cursor: "pointer" }} onClick={() => setMenuOpen((o) => !o)} />
           {menuOpen && (
             <>
@@ -1320,6 +1348,7 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
               </div>
             </>
           )}
+          </div>
         </div>
       </div>
 
@@ -1413,7 +1442,11 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </SectionCard>
 
         <SectionCard T={T} title="Chems">
-          <ReadRow T={T} label="Known chems" value={contact.knownChems.map((id) => ChemsRegistry.getById(id)?.name).filter(Boolean)} />
+          {/* CHANGED — real ask: empty Chems should explicitly say
+              "None known" rather than the row just disappearing —
+              ReadRow's default behavior everywhere else (hide empty
+              fields entirely) still applies to every other field. */}
+          <ReadRow T={T} label="Known chems" value={contact.knownChems.length > 0 ? contact.knownChems.map((id) => ChemsRegistry.getById(id)?.name).filter(Boolean) : "None known"} />
         </SectionCard>
 
         <SectionCard T={T} title="Physical & health">
@@ -1516,6 +1549,7 @@ function ContactProfile({ contactId, onBack, onEdit, onOpenContact, T, refresh }
         </SectionCard>
       </div>
     </div>
+    </ShowBlankFieldsContext.Provider>
   );
 }
 
@@ -1548,10 +1582,24 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
       if (sortBy === "newest") return new Date(b.createdAt) - new Date(a.createdAt);
       if (sortBy === "oldest") return new Date(a.createdAt) - new Date(b.createdAt);
       if (sortBy === "incomplete") return getCompletenessScore(a) - getCompletenessScore(b);
+      // ADDED — real ask: "orderable also by last encounter." Reuses
+      // the same contactEncounterSummary already computed per-card for
+      // the inactive-status dot — no new calculation invented, just a
+      // new way to sort by a fact the app already derives. Contacts
+      // with no encounters at all sort to the very end regardless of
+      // direction, since "no last encounter" isn't really "oldest".
+      if (sortBy === "lastEncounter") {
+        const aLast = contactEncounterSummary(encounters, a.id).lastInteraction;
+        const bLast = contactEncounterSummary(encounters, b.id).lastInteraction;
+        if (!aLast && !bLast) return 0;
+        if (!aLast) return 1;
+        if (!bLast) return -1;
+        return new Date(bLast) - new Date(aLast);
+      }
       return displayName(a).localeCompare(displayName(b));
     });
     return sorted;
-  }, [activeContacts, query, sortBy]);
+  }, [activeContacts, query, sortBy, encounters]);
 
   return (
     <div>
@@ -1594,6 +1642,7 @@ function ContactsList({ contacts, onOpen, onAdd, T, sortBy, setSortBy, query, se
           { key: "name", label: "A–Z" },
           { key: "newest", label: "Newest" },
           { key: "oldest", label: "Oldest" },
+          { key: "lastEncounter", label: "Last encounter" },
           { key: "incomplete", label: "Incomplete" },
         ].map((opt) => (
           <div key={opt.key} onClick={() => setSortBy(opt.key)}
@@ -1680,7 +1729,6 @@ export default function ContactsModule({ openAddOnMount = false, onConsumedQuick
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: T.bg, minHeight: "100vh", display: "flex", justifyContent: "center" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`}</style>
       {/* ADDED 19 Aug 2026 — real undo/redo toast, same visual pattern
           as Medication's own, kept consistent. */}
       {editUndo.toast && (

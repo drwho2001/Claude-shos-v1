@@ -31,7 +31,7 @@ import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym, analyzeKinkEntry, 
 // (formatRelativeDate etc.) are already shared cross-module in this
 // codebase.
 import { normalizeTag } from "../calculations/contactCalculations";
-import { ChemsRegistry } from "../registries/chemsRegistry";
+import { ChemsRegistry, resolveChemSynonym } from "../registries/chemsRegistry";
 import { ProtectionRegistry } from "../registries/protectionRegistry";
 import { SymptomsRegistry } from "../registries/symptomsRegistry";
 import { LocationsRepository } from "../repositories/locationsRepository";
@@ -779,7 +779,7 @@ function EncounterEditSheet({ T, encounterId, onClose, onSaved, onBeforeEdit, on
 
         <SectionCard title="Kink & chems" T={T}>
           <RegistryTagPicker label="Kinks involved" value={form.kinksInvolved} onChange={set("kinksInvolved")} T={T} registry={KinkRegistry} trackRole roleOptions={KINK_ROLE_OPTIONS} resolveSynonym={resolveKinkSynonym} analyzeEntry={analyzeKinkEntry} getRoleOptionsForKink={getKinkRoleOptions} />
-          <RegistryTagPicker label="Chems/alcohol used" value={form.chemsAlcoholUsed} onChange={set("chemsAlcoholUsed")} T={T} registry={ChemsRegistry} />
+          <RegistryTagPicker label="Chems/alcohol used" value={form.chemsAlcoholUsed} onChange={set("chemsAlcoholUsed")} T={T} registry={ChemsRegistry} resolveSynonym={resolveChemSynonym} />
         </SectionCard>
 
         <SectionCard title="Protection & medication context" T={T}>
@@ -875,7 +875,6 @@ export default function EncountersModule({ openAddOnMount = false, onConsumedQui
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');`}</style>
       <EditUndoToast toast={editUndo.toast} onUndo={editUndo.undo} onRedo={editUndo.redo} T={LIGHT} />
       {screenContent}
     </div>

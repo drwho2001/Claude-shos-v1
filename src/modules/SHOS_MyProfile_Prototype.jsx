@@ -39,7 +39,7 @@ import {
 import { KinkRegistry, KINK_ROLE_OPTIONS, resolveKinkSynonym, analyzeKinkEntry, getKinkRoleOptions } from "../registries/kinkRegistry";
 // ADDED — real fix: same normalizeTag Contacts/Encounters use.
 import { normalizeTag } from "../calculations/contactCalculations";
-import { ChemsRegistry } from "../registries/chemsRegistry";
+import { ChemsRegistry, resolveChemSynonym } from "../registries/chemsRegistry";
 // CHANGED 20 Aug 2026 — real design-unification pass: values read
 // from the shared designTokens.js source of truth instead of being
 // retyped here, so this screen can't silently drift from every other
@@ -494,7 +494,7 @@ function MyProfileEditScreen({ profile, onSave, onCancel, T }) {
         </SectionCard>
 
         <SectionCard title="Chems" T={T}>
-          <RegistryTagPicker label="Known chems" value={form.knownChems} onChange={set("knownChems")} registry={ChemsRegistry} T={T} />
+          <RegistryTagPicker label="Known chems" value={form.knownChems} onChange={set("knownChems")} registry={ChemsRegistry} T={T} resolveSynonym={resolveChemSynonym} />
         </SectionCard>
 
         <SectionCard title="Physical" T={T}>
@@ -799,7 +799,6 @@ export default function MyProfileModule({ onClose }) {
     // self-contained) — applying the exact same pattern here instead
     // of depending on App.jsx's wrapper to provide it.
     <div style={{ position: "fixed", inset: 0, overflowY: "auto", fontFamily: "'Public Sans', sans-serif", background: T.bg, display: "flex", justifyContent: "center" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap');`}</style>
       <div style={{ width: 390, background: T.bg, minHeight: "100vh", borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "18px 16px 0" }}>
           {/* ADDED 18 Aug 2026 — My Profile no longer has its own bottom-nav

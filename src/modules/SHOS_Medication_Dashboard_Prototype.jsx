@@ -1062,7 +1062,6 @@ export default function MedicationDashboard({ openAddOnMount = false, onConsumed
 
   return (
     <div style={{ fontFamily: "'Public Sans', sans-serif", background: T.bg, minHeight: "100vh", display: "flex", justifyContent: "center", transition: "background 200ms ease" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');`}</style>
       <div style={{ width: 390, background: T.bg, minHeight: "100vh", display: "flex", flexDirection: "column", borderLeft: `1px solid ${T.border}`, borderRight: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 16px 12px" }}>
           <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Medication</span>

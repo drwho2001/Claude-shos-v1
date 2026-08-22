@@ -12,3 +12,18 @@ export const ChemsRegistry = createSimpleRegistry({
   idPrefix: "chem",
   seedNames: [],
 });
+
+// ADDED — real ask: "Smoking and Tobacco are the same thing" — merged
+// to the one real entry going forward. Same synonym-resolution pattern
+// already established for KinkRegistry (resolveKinkSynonym) — small,
+// explicit map, not automatic fuzzy-matching, to avoid false-positive
+// merges of genuinely different substances.
+const CHEM_SYNONYMS = {
+  "tobacco": "Smoking",
+  "cigarettes": "Smoking",
+};
+
+export function resolveChemSynonym(name) {
+  const match = CHEM_SYNONYMS[name.trim().toLowerCase()];
+  return match || name;
+}

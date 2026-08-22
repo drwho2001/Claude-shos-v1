@@ -172,6 +172,37 @@ function ClinicianField({ value, onChange, T }) {
   );
 }
 
+// ADDED — real ask: "Include location on card if known" — same real
+// free-text-plus-suggestions pattern as Clinician above, not a full
+// Locations Repository relation (Encounters' own, heavier system) —
+// this is just naming which clinic, not a place with its own address/
+// notes/related-contact concept.
+function getKnownClinicVisitLocations() {
+  const typed = ClinicVisitsRepository.getAll().map((v) => v.location).filter(Boolean);
+  return Array.from(new Set(typed));
+}
+function ClinicVisitLocationField({ value, onChange, T }) {
+  const known = useMemo(() => getKnownClinicVisitLocations(), []);
+  const visibleSuggestions = known.filter((l) => l !== value).slice(0, 8);
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Location (optional)</div>
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((l) => (
+            <div key={l} onClick={() => onChange(l)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
+              {l}
+            </div>
+          ))}
+        </div>
+      )}
+      <input value={value ?? ""} onChange={(e) => onChange(e.target.value)} placeholder="e.g. Conifer Sexual Health Clinic — leave blank if unknown"
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
+    </div>
+  );
+}
+
 // ADDED 19 Aug 2026 — real feedback batch: "'Future appointment'
 // should read as an explicit yes/no question", not a bare toggle with
 // a one-word label that leaves what "on" means to context. Same
@@ -330,7 +361,15 @@ function VisitEditSheet({ visitId, onClose, onSaved, onBeforeEdit, onAfterEdit, 
   });
   const [draftRestored] = useState(() => !!loadDraft(draftKey));
   const [refreshKey, setRefreshKey] = useState(0);
+  // CHANGED — real bug fix, same as Encounters: fired on the very
+  // first render too, immediately autosaving the pristine, untouched
+  // default form the instant this sheet opened — so just opening and
+  // closing it with zero real edits left a draft behind, later shown
+  // as a false "Restored unsaved changes" prompt. Skips the initial
+  // mount with a ref, only saves once the form has genuinely changed.
+  const isFirstRender = useRef(true);
   useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     saveDraft(draftKey, form);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
@@ -417,6 +456,7 @@ function VisitEditSheet({ visitId, onClose, onSaved, onBeforeEdit, onAfterEdit, 
               required it — this was already true, just now also
               genuinely free-text). */}
           <ClinicianField value={form.clinician} onChange={set("clinician")} T={T} />
+          <ClinicVisitLocationField value={form.location} onChange={set("location")} T={T} />
           <MultiSelectChips label="Reason for visit" value={form.reasonForVisit} onChange={set("reasonForVisit")} options={reasonForVisitOptions} T={T} />
           {/* CHANGED 19 Aug 2026 — explicit yes/no question, not a
               bare toggle. */}
@@ -430,6 +470,14 @@ function VisitEditSheet({ visitId, onClose, onSaved, onBeforeEdit, onAfterEdit, 
               abbreviation, not obvious without sexual-health context. */}
           {form.followUpType === "TOC" && (
             <div style={{ fontSize: 11, color: T.textDisabled, marginTop: -6, marginBottom: 6 }}>TOC = Test of Cure, a follow-up test confirming treatment actually worked.</div>
+          )}
+          {/* ADDED — real ask: expand the meaning of the other two
+              options too, not just TOC. */}
+          {form.followUpType === "Routine" && (
+            <div style={{ fontSize: 11, color: T.textDisabled, marginTop: -6, marginBottom: 6 }}>e.g. medication review, annual check-up.</div>
+          )}
+          {form.followUpType === "Other" && (
+            <div style={{ fontSize: 11, color: T.textDisabled, marginTop: -6, marginBottom: 6 }}>e.g. contraception, vaccination.</div>
           )}
           <TextField label="Follow-up / next review date" value={form.nextReviewDate ? form.nextReviewDate.slice(0, 10) : ""} onChange={(v) => set("nextReviewDate")(v ? new Date(v).toISOString() : null)} T={T} type="date" />
         </SectionCard>
@@ -545,6 +593,7 @@ function VisitDetail({ visitId, onBack, onEdit, onOpenTest, T }) {
 
         <SectionCard title="Overview" T={T}>
           <ReadRow label="Clinician" value={visit.clinician} T={T} />
+          <ReadRow label="Location" value={visit.location} T={T} />
           <ReadRow label="Reason for visit" value={visit.reasonForVisit} T={T} />
           <ReadRow label="Future appointment" value={visit.isFutureAppointment ? "Yes" : ""} T={T} />
           <ReadRow label="Follow-up arranged" value={visit.followUpType && visit.followUpType !== "None" ? visit.followUpType : ""} T={T} />
@@ -624,7 +673,11 @@ function VisitsLanding({ onOpen, onAdd, T }) {
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ padding: "18px 16px 2px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Clinic Visits</span>
-        <Plus size={22} color={T.healthcareBlue} style={{ cursor: "pointer" }} onClick={onAdd} />
+      </div>
+      {/* CHANGED — same real fix, consistent with the standardized
+          floating-add-button ask applied across every other module. */}
+      <div onClick={onAdd} style={{ position: "fixed", bottom: 90, right: 20, width: 56, height: 56, borderRadius: 999, background: T.healthcareBlue, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)", zIndex: 20 }}>
+        <Plus size={24} />
       </div>
 
       <div style={{ padding: "12px 16px 100px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -643,6 +696,7 @@ function VisitsLanding({ onOpen, onAdd, T }) {
             </div>
             <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>{formatDate(v.date)}</div>
             {v.clinician && <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2 }}>{v.clinician}</div>}
+            {v.location && <div style={{ fontSize: 12, color: T.textSecondary, marginLeft: 16, marginTop: 2 }}>{v.location}</div>}
           </div>
         ))}
       </div>

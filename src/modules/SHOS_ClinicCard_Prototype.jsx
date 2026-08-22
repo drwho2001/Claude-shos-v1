@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { ChevronLeft, Pill, HeartPulse, Users, AlertTriangle } from "lucide-react";
 import { MedicationRepository } from "../repositories/medicationRepository";
 import { LogRepository } from "../repositories/logRepository";
@@ -64,10 +64,10 @@ function SectionCard({ children }) {
   return <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 16, margin: "0 16px", overflow: "hidden" }}>{children}</div>;
 }
 
-function Row({ dot, title, subtitle, alert }) {
+function Row({ dot, title, subtitle, alert, color }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
-      <span style={{ width: 9, height: 9, borderRadius: 999, background: alert ? T.actionRed : T.healthcareBlue, flexShrink: 0 }} />
+      <span style={{ width: 9, height: 9, borderRadius: 999, background: alert ? T.actionRed : (color || T.healthcareBlue), flexShrink: 0 }} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: alert ? T.actionRed : T.textPrimary }}>{title}</div>
         {subtitle && <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 1 }}>{subtitle}</div>}
@@ -93,9 +93,21 @@ export default function ClinicCardScreen({ onClose }) {
   const meds = useMemo(() => loadMedicationsWithLogs(), []);
   const tests = useMemo(() => sortByDateDesc(TestingRepository.getAll().filter((t) => !t.isArchived)), []);
   const encounters = useMemo(() => sortByDateDesc(EncounterRepository.getAll()), []);
-  const profile = useMemo(() => MyProfileRepository.getProfile(), []);
+  const [profile, setProfile] = useState(() => MyProfileRepository.getProfile());
 
   const nameFrom = (registry, id) => registry.getById(id)?.name || "—";
+
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [identityDraft, setIdentityDraft] = useState(null);
+
+  const openIdentityEdit = () => {
+    setIdentityDraft({ dateOfBirth: profile.dateOfBirth, clinicNumber: profile.clinicNumber, address: profile.address, nhsNumber: profile.nhsNumber });
+    setEditingIdentity(true);
+  };
+  const saveIdentity = () => {
+    setProfile(MyProfileRepository.update(identityDraft));
+    setEditingIdentity(false);
+  };
 
   const recentTests = tests.slice(0, 5).map((t) => {
     const resultNames = (t.resultIds || []).map((id) => nameFrom(ResultsRegistry, id));
@@ -141,17 +153,56 @@ export default function ClinicCardScreen({ onClose }) {
     <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 200, overflowY: "auto", fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 16, position: "sticky", top: 0, background: T.bg, borderBottom: `1px solid ${T.border}` }}>
         <ChevronLeft size={22} color={T.textPrimary} style={{ cursor: "pointer" }} onClick={onClose} />
-        <span style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary }}>Clinic Card</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary }}>{profile.nickname ? `${profile.nickname}'s clinic card` : "Clinic Card"}</span>
       </div>
       <div style={{ padding: "10px 16px 0", fontSize: 12, color: T.textSecondary }}>
-        A read-only summary — nothing here is editable from this screen. Tap the relevant module to make changes.
+        A read-only summary — nothing here is editable from this screen, except the identity details directly below. Tap the relevant module to make other changes.
       </div>
+
+      {/* ADDED — real, explicitly scoped ask: DOB/clinic number/
+          address/NHS number, editable ONLY here on Clinic Card — never
+          on My Profile's own edit screen, and never included in a
+          shared-profile export (see profileShareService.js's own
+          explicit exclusion list). The one deliberate exception to
+          this screen's "read-only" rule, since there's genuinely
+          nowhere else these belong. */}
+      <SectionHeader>Identity</SectionHeader>
+      <SectionCard>
+        {editingIdentity ? (
+          <div style={{ padding: 14 }}>
+            {[["dateOfBirth", "Date of birth"], ["clinicNumber", "Clinic number"], ["address", "Address"], ["nhsNumber", "NHS number"]].map(([key, label]) => (
+              <div key={key} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>{label}</div>
+                <input value={identityDraft[key] ?? ""} onChange={(e) => setIdentityDraft({ ...identityDraft, [key]: e.target.value })}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setEditingIdentity(false)} style={{ flex: 1, padding: 10, borderRadius: 999, border: `1px solid ${T.border}`, background: "transparent", color: T.textSecondary, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+              <button onClick={saveIdentity} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: T.healthcareBlue, color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Save</button>
+            </div>
+          </div>
+        ) : (
+          <div onClick={openIdentityEdit} style={{ cursor: "pointer" }}>
+            {profile.dateOfBirth || profile.clinicNumber || profile.address || profile.nhsNumber ? (
+              <>
+                {profile.dateOfBirth && <Row title="Date of birth" subtitle={profile.dateOfBirth} />}
+                {profile.clinicNumber && <Row title="Clinic number" subtitle={profile.clinicNumber} />}
+                {profile.address && <Row title="Address" subtitle={profile.address} />}
+                {profile.nhsNumber && <Row title="NHS number" subtitle={profile.nhsNumber} />}
+              </>
+            ) : (
+              <EmptyRow>Tap to add date of birth, clinic number, address, or NHS number.</EmptyRow>
+            )}
+          </div>
+        )}
+      </SectionCard>
 
       <SectionHeader>Current medications</SectionHeader>
       <SectionCard>
         {meds.length === 0 ? <EmptyRow>No active medications logged.</EmptyRow> : meds.map((m) => {
           const stock = computeStock(m);
-          return <Row key={m.id} title={m.name} subtitle={[m.medicationType, m.route].filter(Boolean).join(" · ")} alert={stock.tracked && stock.needsAction} />;
+          return <Row key={m.id} title={m.name} subtitle={[m.medicationType, m.route].filter(Boolean).join(" · ")} alert={stock.tracked && stock.needsAction} color={ACCENTS.medication} />;
         })}
       </SectionCard>
 
@@ -197,14 +248,14 @@ export default function ClinicCardScreen({ onClose }) {
         {activeSymptoms.length === 0 ? (
           <EmptyRow>Nothing active right now.</EmptyRow>
         ) : activeSymptoms.map((s) => (
-          <Row key={s.id} title={s.title} subtitle={[nameFrom(SymptomsRegistry, s.symptomId), s.severity, formatRelativeDate(s.dateStarted)].filter(Boolean).join(" · ")} alert={s.severity === "Severe"} />
+          <Row key={s.id} title={s.title} subtitle={[nameFrom(SymptomsRegistry, s.symptomId), s.severity, formatRelativeDate(s.dateStarted), s.dateResolved ? `resolved ${formatRelativeDate(s.dateResolved)}` : null].filter(Boolean).join(" · ")} alert={s.severity === "Severe"} />
         ))}
       </SectionCard>
 
-      <SectionHeader>Recent partners</SectionHeader>
+      <SectionHeader>Recent encounters</SectionHeader>
       <SectionCard>
         {recentPartners.length === 0 ? <EmptyRow>No encounters logged yet.</EmptyRow> : recentPartners.map((p) => (
-          <Row key={p.id} title={p.title} subtitle={p.subtitle} />
+          <Row key={p.id} title={p.title} subtitle={p.subtitle} color={ACCENTS.encounters} />
         ))}
       </SectionCard>
 

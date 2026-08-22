@@ -32,7 +32,7 @@ export const SETTING_OPTIONS = ["🏥😎 Clinic - Routine", "🏥🤢 Clinic - 
 // Kane's exact wording, to be clearer this covers a symptomatic
 // culture-and-sensitivity test too, not only a scheduled treatment
 // follow-up.
-export const TESTING_FOR_OPTIONS = ["Gonorrhoea", "HIV", "Syphilis", "Chlamydia", "Hepatitis A", "Hepatitis B", "Hepatitis C", "Mpox", "C&S (symptomatic/treatment)", "MGen", "Other"];
+export const TESTING_FOR_OPTIONS = ["Gonorrhoea", "HIV", "Syphilis", "Chlamydia", "Hepatitis A", "Hepatitis B", "Hepatitis C", "Mpox", "MGen", "HPV", "Herpes (HSV)", "Trichomoniasis", "Bacterial vaginosis", "C&S (symptomatic/treatment)", "Other"];
 
 export const DEFAULT_TEST = {
   title: "",

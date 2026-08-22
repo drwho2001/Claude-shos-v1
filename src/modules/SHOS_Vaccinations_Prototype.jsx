@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Plus, ChevronLeft, Check, RefreshCcw } from "lucide-react";
 import { VaccinationRepository, DEFAULT_VACCINATION } from "../repositories/vaccinationRepository";
 // ADDED 19 Aug 2026 — VACCINE_OPTIONS/REASON_OPTIONS/INJECTION_SITE_OPTIONS
@@ -127,10 +127,41 @@ function ReadRow({ label, value, T, alert }) {
   );
 }
 
+// CHANGED — real ask: "not an exhaustive vaccine name given, should be
+// free/partially free text with recognition, so e.g. MENACWY can be
+// added" — the underlying data already came from the editable option
+// list, but the field itself was still a closed <select>, meaning
+// typing a new one directly on this form wasn't actually possible.
+// Same free-text-plus-suggestions pattern already proven for Clinician
+// in Clinic Visits — genuinely typing a new value here also saves it
+// to the real shared option list, so it's a real suggestion next time.
+function VaccineField({ value, onChange, options, onAddNew, T }) {
+  const visibleSuggestions = options.filter((v) => v !== value).slice(0, 8);
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <div style={{ fontSize: 12, color: T.textSecondary, marginBottom: 4 }}>Vaccine</div>
+      {visibleSuggestions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+          {visibleSuggestions.map((v) => (
+            <div key={v} onClick={() => onChange(v)}
+              style={{ padding: "3px 9px", borderRadius: radius.full, fontSize: 11, border: `1px solid ${T.healthcareBlue}`, color: T.healthcareBlue, cursor: "pointer" }}>
+              {v}
+            </div>
+          ))}
+        </div>
+      )}
+      <input value={value ?? ""} onChange={(e) => onChange(e.target.value)}
+        onBlur={() => { if (value && value.trim()) onAddNew(value.trim()); }}
+        placeholder="e.g. MENACWY"
+        style={{ width: "100%", padding: "10px 12px", borderRadius: radius.sm, border: `1px solid ${T.border}`, background: T.surfaceVariant, color: T.textPrimary, fontFamily: "'Public Sans', sans-serif", fontSize: 14, boxSizing: "border-box" }} />
+    </div>
+  );
+}
+
 function VaccinationSheet({ vaccination, onSave, onClose, T }) {
   const isNew = !vaccination;
   // ADDED 19 Aug 2026 — real in-app editable option lists.
-  const vaccineOptions = useMemo(() => CustomOptionListsRepository.get("vaccine"), []);
+  const [vaccineOptions, setVaccineOptions] = useState(() => CustomOptionListsRepository.get("vaccine"));
   const vaccinationReasonOptions = useMemo(() => CustomOptionListsRepository.get("vaccinationReason"), []);
   const injectionSiteOptions = useMemo(() => CustomOptionListsRepository.get("injectionSite"), []);
   const draftKey = `vaccination_${vaccination?.id || "new"}`;
@@ -139,7 +170,17 @@ function VaccinationSheet({ vaccination, onSave, onClose, T }) {
     if (draft) return draft.data;
     return vaccination ? { ...vaccination } : { ...DEFAULT_VACCINATION, date: new Date().toISOString().slice(0, 10) };
   });
-  useEffect(() => { saveDraft(draftKey, form); }, [form]);
+  // CHANGED — real bug fix, same as Encounters: fired on the very
+  // first render too, immediately autosaving the pristine, untouched
+  // default form the instant this sheet opened — so just opening and
+  // closing it with zero real edits left a draft behind, later shown
+  // as a false "Restored unsaved changes" prompt. Skips the initial
+  // mount with a ref, only saves once the form has genuinely changed.
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    saveDraft(draftKey, form);
+  }, [form]);
   const set = (key) => (v) => setForm((f) => ({ ...f, [key]: v }));
   const canSave = form.title.trim().length > 0;
   const symptoms = useMemo(() => SymptomsRegistry.getAll().filter((s) => !s.isArchived), []);
@@ -158,7 +199,8 @@ function VaccinationSheet({ vaccination, onSave, onClose, T }) {
         </div>
         <div style={{ overflowY: "auto", padding: "0 20px", flex: 1 }}>
           <TextField label="Title" value={form.title} onChange={set("title")} T={T} placeholder="e.g. Hep B booster" />
-          <SelectField label="Vaccine" value={form.vaccine} onChange={set("vaccine")} options={vaccineOptions} T={T} />
+          <VaccineField value={form.vaccine} onChange={set("vaccine")} options={vaccineOptions}
+            onAddNew={(v) => setVaccineOptions(CustomOptionListsRepository.add("vaccine", v))} T={T} />
           <MultiSelectChips label="Reason" value={form.reason} onChange={set("reason")} options={vaccinationReasonOptions} T={T} />
           <TextField label="Dose number" value={form.doseNumber ?? ""} onChange={(v) => set("doseNumber")(v === "" ? null : Number(v))} T={T} type="number" />
           <TextField label="Date" value={form.date} onChange={set("date")} T={T} type="date" />
@@ -239,11 +281,17 @@ function VaccinationsLanding({ onOpen, onAdd, T }) {
     <div style={{ fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ padding: "18px 16px 2px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 22, fontWeight: 700, color: T.textPrimary }}>Vaccinations</span>
-        <Plus size={22} color={T.healthcareBlue} style={{ cursor: "pointer" }} onClick={onAdd} />
       </div>
       {overdueCount > 0 && (
         <div style={{ margin: "8px 16px 0", fontSize: 12, color: T.actionRed, fontWeight: 600 }}>{overdueCount} overdue</div>
       )}
+      {/* CHANGED — real ask: Add button now floats bottom-right, same
+          fixed-position pattern as every other module, instead of an
+          inline header icon that scrolled away with the rest of the
+          page. */}
+      <div onClick={onAdd} style={{ position: "fixed", bottom: 90, right: 20, width: 56, height: 56, borderRadius: 999, background: T.healthcareBlue, color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.2)", zIndex: 20 }}>
+        <Plus size={24} />
+      </div>
       <div style={{ padding: "12px 16px 100px", display: "flex", flexDirection: "column", gap: 10 }}>
         {sorted.length === 0 && (
           <div style={{ textAlign: "center", padding: "40px 20px", color: T.textDisabled, fontSize: 13 }}>

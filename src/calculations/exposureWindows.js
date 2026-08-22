@@ -63,8 +63,12 @@ export const EXPOSURE_WINDOWS_DAYS = {
 // checked against, returns the list of testingFor entries whose
 // window period hasn't elapsed yet — i.e. the infections this test's
 // negative result CAN'T confidently speak to for that encounter.
-// Anything not in EXPOSURE_WINDOWS_DAYS (Mpox, Other, C&S) is silently
-// skipped — no window concept applies, so nothing to flag.
+// Anything not in EXPOSURE_WINDOWS_DAYS (Mpox, Other, C&S, and — per
+// Kane's own explicit call — HPV/Herpes/Trichomoniasis/Bacterial
+// vaginosis, added for broader LGBTQ+-inclusive coverage without
+// requiring the same BASHH-sourced precision research as the core
+// list) is silently skipped — no window concept applies, so nothing
+// to flag.
 export function unclearedInfectionsForTest(test, encounterDate) {
   if (!encounterDate || !test?.date) return [];
   const daysBetween = (new Date(test.date) - new Date(encounterDate)) / 86400000;

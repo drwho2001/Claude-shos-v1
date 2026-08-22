@@ -54,6 +54,7 @@ export const CLINICIAN_OPTIONS = ["Lucy", "Jonathan", "Black doctor male", "Hayl
 export const DEFAULT_CLINIC_VISIT = {
   title: "",
   date: null,
+  location: "",
   // CHANGED 19 Aug 2026 — real feedback batch: "Clinician should be
   // free text, not a fixed list, and not mandatory." Stays a plain
   // string (it already was one) — only the UI changes, from a

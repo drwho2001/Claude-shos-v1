@@ -83,7 +83,7 @@ export const DEFAULT_PROFILE = {
   // never did — an oversight, not a deliberate difference. Fixed for
   // parity.
   foreskinDetail: "",
-  chastityStatus: "",
+  chastityStatus: "N/A",
   cummer: [],
 
   // Sexual health status — "the actual point of this page" per the
@@ -123,6 +123,19 @@ export const DEFAULT_PROFILE = {
   emergencyContactName: "",
   emergencyContactPhone: "",
   emergencyNotes: "",
+
+  // ADDED — real ask: Clinic Card identity fields (DOB, clinic number,
+  // address, NHS number). Kane's own explicit scope: needed on Clinic
+  // Card definitively, NOT necessarily surfaced on My Profile's own
+  // edit screen — so editing lives entirely within Clinic Card itself,
+  // not here. Same non-shareable treatment as Allergies/Emergency info
+  // above — real downside if this ever reached a hookup partner via a
+  // shared profile, zero benefit to them. Also deliberately absent
+  // from profileShareService.js's mapShareToContactData().
+  dateOfBirth: "",
+  clinicNumber: "",
+  address: "",
+  nhsNumber: "",
 
   updatedAt: null,
 };

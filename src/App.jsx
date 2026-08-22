@@ -42,7 +42,7 @@ import { CustomOptionListsRepository } from "./repositories/customOptionListsRep
 import { MyProfileRepository } from "./repositories/myProfileRepository";
 import { computeKinkUsage, computeChemsUsage, computeProtectionUsage, computeSymptomsUsage, computeOrganismUsage, computeResultsUsage } from "./calculations/registryUsage";
 import { formatRelativeDate } from "./calculations/encounterCalculations";
-import { Home, Users, Activity, Pill, HeartPulse, Download, Upload, ChevronRight, Settings as SettingsIcon, ChevronLeft, User, Search, Database, Trash2, AlertTriangle, Check, ClipboardList, ListTree, Paperclip, History, EyeOff, Eye, TestTube, Flame, Shield, Stethoscope, Microscope, ClipboardCheck, Syringe, Thermometer } from "lucide-react";
+import { Home, Users, Activity, Pill, HeartPulse, Download, Upload, ChevronRight, Settings as SettingsIcon, ChevronLeft, User, Search, Database, Trash2, AlertTriangle, Check, ClipboardList, ListTree, Paperclip, History, EyeOff, Eye, TestTube, Flame, Shield, Stethoscope, Microscope, ClipboardCheck, Syringe, Thermometer, Calendar, CreditCard } from "lucide-react";
 
 // CHANGED 18 Aug 2026 — real persistent bottom nav, replacing the old
 // top switcher. Per Doc 1 (Master Navigation Map v1.0): five tabs —
@@ -119,7 +119,7 @@ function HealthcareScreen({ openAddOnMount, onConsumedQuickAdd, quickAddTarget }
             genuinely room to breathe now. */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
           <div onClick={() => setShowTimeline(true)} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-            <History size={15} color={T.healthcareBlue} />
+            <Calendar size={15} color={T.healthcareBlue} />
             <span style={{ fontSize: 12, fontWeight: 700, color: T.healthcareBlue }}>Timeline</span>
           </div>
           <div onClick={() => setShowAttachments(true)} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
@@ -127,7 +127,7 @@ function HealthcareScreen({ openAddOnMount, onConsumedQuickAdd, quickAddTarget }
             <span style={{ fontSize: 12, fontWeight: 700, color: T.healthcareBlue }}>Attachments</span>
           </div>
           <div onClick={() => setShowClinicCard(true)} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
-            <ClipboardList size={16} color={T.healthcareBlue} />
+            <CreditCard size={16} color={T.healthcareBlue} />
             <span style={{ fontSize: 12, fontWeight: 700, color: T.healthcareBlue }}>Clinic Card</span>
           </div>
         </div>
@@ -343,12 +343,16 @@ function HomeScreen({ onQuickAdd, onOpenSettings, onOpenSearch }) {
       {/* CHANGED — real ask: Clinic Card + Timeline moved above Quick
           Add, was below it before. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <div onClick={() => setShowClinicCard(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
-          <ClipboardList size={15} color="#4A80F0" />
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Clinic Card</span>
+        {/* CHANGED — real ask: Clinic Card gets an ID-card icon (CreditCard
+            — "IdCard" isn't exported by this lucide-react version, build-
+            verified before picking a substitute), Timeline gets a calendar
+            icon, instead of the generic clipboard/history icons before. */}
+        <div onClick={() => setShowClinicCard(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: `1px solid ${NEUTRAL.border}`, background: NEUTRAL.surface, cursor: "pointer" }}>
+          <CreditCard size={15} color={ACCENTS.healthcare} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: ACCENTS.healthcare }}>Clinic Card</span>
         </div>
         <div onClick={() => setShowTimeline(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 10px", borderRadius: 16, border: "1px solid #DCDCE1", background: "#FFFFFF", cursor: "pointer" }}>
-          <History size={15} color="#4A80F0" />
+          <Calendar size={15} color="#4A80F0" />
           <span style={{ fontSize: 13, fontWeight: 600, color: "#4A80F0" }}>Timeline</span>
         </div>
       </div>
@@ -542,6 +546,15 @@ function DeveloperToolsScreen({ onClose }) {
         <span style={{ fontSize: 16, fontWeight: 700, color: "#1B1B1F" }}>Developer tools</span>
       </div>
 
+      {/* ADDED — real ask: this never explained what it was actually
+          counting. It's a real storage overview (every repository's
+          live record count) plus a full reset below — not a
+          timeframe-based count, that's a separate, still-outstanding
+          Activity filter request. */}
+      <div style={{ fontSize: 11, color: "#5B5B62", padding: "10px 16px 0" }}>
+        Live record counts across every part of the app's local storage, mainly useful for confirming a backup/restore or migration went as expected.
+      </div>
+
       <div style={{ fontSize: 11, fontWeight: 700, color: "#9A9AA1", textTransform: "uppercase", letterSpacing: 0.5, padding: "16px 16px 6px" }}>Storage overview</div>
       <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, margin: "0 16px 20px", padding: "4px 14px" }}>
         {counts.map((c) => (
@@ -645,6 +658,14 @@ function PrivacyScreen({ onClose }) {
   const [pinError, setPinError] = useState("");
   const [settingPin, setSettingPin] = useState(false);
   const [newPin, setNewPin] = useState("");
+  // ADDED — real ask: force reconfirmation before accepting a new PIN,
+  // to catch typos (a wrong PIN saved silently would lock Kane out of
+  // his own Anonymise-revert/App-Lock later, with no way back in).
+  const [confirmPin, setConfirmPin] = useState("");
+  // ADDED — real ask: eye-icon show/hide toggle on PIN entry, matching
+  // the pattern used elsewhere on the web. Shared across every PIN
+  // field on this screen.
+  const [showPins, setShowPins] = useState(false);
 
   const refresh = () => setSettings(PrivacySettingsRepository.getSettings());
 
@@ -657,8 +678,10 @@ function PrivacyScreen({ onClose }) {
   const savePin = () => {
     const trimmed = newPin.trim();
     if (trimmed.length < 4) { setPinError("PIN should be at least 4 digits."); return; }
+    // CHANGED — real ask: force reconfirmation before accepting.
+    if (trimmed !== confirmPin.trim()) { setPinError("PINs don't match — check both and try again."); return; }
     PrivacySettingsRepository.update({ anonymisePin: trimmed });
-    setNewPin(""); setSettingPin(false); setPinError("");
+    setNewPin(""); setConfirmPin(""); setSettingPin(false); setPinError("");
     refresh();
   };
 
@@ -681,7 +704,7 @@ function PrivacyScreen({ onClose }) {
     <div style={{ position: "fixed", inset: 0, background: "#F0F0F3", zIndex: 220, overflowY: "auto", fontFamily: "'Public Sans', sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 16, position: "sticky", top: 0, background: "#F0F0F3", borderBottom: "1px solid #DCDCE1" }}>
         <ChevronLeft size={22} color="#1B1B1F" style={{ cursor: "pointer" }} onClick={onClose} />
-        <span style={{ fontSize: 16, fontWeight: 700, color: "#1B1B1F" }}>Privacy</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#1B1B1F" }}>Privacy & Security</span>
       </div>
 
       <div style={{ padding: "16px" }}>
@@ -709,8 +732,12 @@ function PrivacyScreen({ onClose }) {
               {settings.anonymisePin ? "Enter your PIN to turn it back off" : "Turn it back off"}
             </div>
             {settings.anonymisePin && (
-              <input value={pinEntry} onChange={(e) => { setPinEntry(e.target.value); setPinError(""); }} type="password" inputMode="numeric" placeholder="PIN"
-                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", marginBottom: 8, fontSize: 14, boxSizing: "border-box" }} />
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <input value={pinEntry} onChange={(e) => { setPinEntry(e.target.value); setPinError(""); }} type={showPins ? "text" : "password"} inputMode="numeric" placeholder="PIN"
+                  style={{ width: "100%", padding: "10px 40px 10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", fontSize: 14, boxSizing: "border-box" }} />
+                {showPins ? <EyeOff size={17} color="#9A9AA1" style={{ position: "absolute", right: 12, top: 12, cursor: "pointer" }} onClick={() => setShowPins(false)} />
+                  : <Eye size={17} color="#9A9AA1" style={{ position: "absolute", right: 12, top: 12, cursor: "pointer" }} onClick={() => setShowPins(true)} />}
+              </div>
             )}
             {pinError && <div style={{ fontSize: 12, color: "#E5484D", marginBottom: 8 }}>{pinError}</div>}
             <button onClick={attemptDeactivate} style={{ width: "100%", padding: 12, borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>
@@ -718,6 +745,29 @@ function PrivacyScreen({ onClose }) {
             </button>
           </div>
         )}
+
+        {/* CHANGED — real ask: moved to sit immediately below the base
+            Anonymise toggle (was further down, after App Lock) — also
+            now genuinely disabled, not just visually de-emphasized,
+            unless Anonymise mode is actually on. Toggling "further"
+            hiding when the base tier isn't even active never made
+            sense — there'd be nothing for it to add on top of. */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16, marginBottom: 16, opacity: settings.anonymiseModeActive ? 1 : 0.5 }}>
+          <div onClick={settings.anonymiseModeActive ? () => { PrivacySettingsRepository.update({ hideFurtherEnabled: !settings.hideFurtherEnabled }); refresh(); } : undefined}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: settings.anonymiseModeActive ? "pointer" : "default" }}>
+            <div style={{ flex: 1, paddingRight: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F" }}>Also hide kinks & physical attributes</div>
+              <div style={{ fontSize: 11, color: "#5B5B62", marginTop: 2 }}>
+                {settings.anonymiseModeActive
+                  ? "Stated kinks, limits, length/girth, and Cummer stats — hidden in addition to the base fields above, only while Anonymise mode is on."
+                  : "Turn on Anonymise mode above first — this only ever applies on top of it."}
+              </div>
+            </div>
+            <div style={{ width: 40, height: 24, borderRadius: 999, background: settings.hideFurtherEnabled ? "#4A80F0" : "#DCDCE1", position: "relative", flexShrink: 0 }}>
+              <div style={{ position: "absolute", top: 2, left: settings.hideFurtherEnabled ? 18 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF" }} />
+            </div>
+          </div>
+        </div>
 
         {/* ADDED 19 Aug 2026 — App Lock, real ask, separate from
             Anonymise mode: gates opening the app at all, not just
@@ -728,7 +778,7 @@ function PrivacyScreen({ onClose }) {
           <div onClick={toggleAppLock} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
             <div style={{ flex: 1, paddingRight: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F" }}>App Lock</div>
-              <div style={{ fontSize: 11, color: "#5B5B62", marginTop: 2 }}>Require your PIN just to open the app at all. Uses the same PIN as Anonymise mode's revert, below. Biometric unlock isn't available yet — needs the native app version.</div>
+              <div style={{ fontSize: 11, color: "#5B5B62", marginTop: 2 }}>Require your PIN just to open the app at all. Uses the same PIN as the Revert PIN below. Biometric unlock isn't available yet — needs the native app version.</div>
             </div>
             <div style={{ width: 40, height: 24, borderRadius: 999, background: settings.appLockEnabled ? "#4A80F0" : "#DCDCE1", position: "relative", flexShrink: 0 }}>
               <div style={{ position: "absolute", top: 2, left: settings.appLockEnabled ? 18 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF" }} />
@@ -745,18 +795,9 @@ function PrivacyScreen({ onClose }) {
           )}
         </div>
 
-        <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16, marginBottom: 16 }}>
-          <div onClick={() => { PrivacySettingsRepository.update({ hideFurtherEnabled: !settings.hideFurtherEnabled }); refresh(); }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
-            <div style={{ flex: 1, paddingRight: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F" }}>Also hide kinks & physical attributes</div>
-              <div style={{ fontSize: 11, color: "#5B5B62", marginTop: 2 }}>Stated kinks, limits, length/girth, and Cummer stats — hidden in addition to the base fields above, only while Anonymise mode is on.</div>
-            </div>
-            <div style={{ width: 40, height: 24, borderRadius: 999, background: settings.hideFurtherEnabled ? "#4A80F0" : "#DCDCE1", position: "relative", flexShrink: 0 }}>
-              <div style={{ position: "absolute", top: 2, left: settings.hideFurtherEnabled ? 18 : 2, width: 20, height: 20, borderRadius: 999, background: "#FFFFFF" }} />
-            </div>
-          </div>
-        </div>
-
+        {/* CHANGED — real ask: "App Lock and Revert PIN should be
+            neighbours" — moved to sit directly below App Lock now,
+            since they share the exact same PIN. */}
         <div style={{ background: "#FFFFFF", border: "1px solid #DCDCE1", borderRadius: 16, padding: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#1B1B1F", marginBottom: 4 }}>Revert PIN</div>
           <div style={{ fontSize: 11, color: "#5B5B62", marginBottom: 10 }}>
@@ -764,11 +805,23 @@ function PrivacyScreen({ onClose }) {
           </div>
           {settingPin ? (
             <>
-              <input value={newPin} onChange={(e) => setNewPin(e.target.value)} type="password" inputMode="numeric" placeholder="New PIN (4+ digits)"
-                style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", marginBottom: 8, fontSize: 14, boxSizing: "border-box" }} />
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <input value={newPin} onChange={(e) => setNewPin(e.target.value)} type={showPins ? "text" : "password"} inputMode="numeric" placeholder="New PIN (4+ digits)"
+                  style={{ width: "100%", padding: "10px 40px 10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", fontSize: 14, boxSizing: "border-box" }} />
+                {showPins ? <EyeOff size={17} color="#9A9AA1" style={{ position: "absolute", right: 12, top: 12, cursor: "pointer" }} onClick={() => setShowPins(false)} />
+                  : <Eye size={17} color="#9A9AA1" style={{ position: "absolute", right: 12, top: 12, cursor: "pointer" }} onClick={() => setShowPins(true)} />}
+              </div>
+              {/* ADDED — real ask: force reconfirmation before accepting,
+                  to catch typos before they lock Kane out later. */}
+              <div style={{ position: "relative", marginBottom: 8 }}>
+                <input value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} type={showPins ? "text" : "password"} inputMode="numeric" placeholder="Confirm new PIN"
+                  style={{ width: "100%", padding: "10px 40px 10px 12px", borderRadius: 8, border: "1px solid #DCDCE1", fontSize: 14, boxSizing: "border-box" }} />
+                {showPins ? <EyeOff size={17} color="#9A9AA1" style={{ position: "absolute", right: 12, top: 12, cursor: "pointer" }} onClick={() => setShowPins(false)} />
+                  : <Eye size={17} color="#9A9AA1" style={{ position: "absolute", right: 12, top: 12, cursor: "pointer" }} onClick={() => setShowPins(true)} />}
+              </div>
               {pinError && <div style={{ fontSize: 12, color: "#E5484D", marginBottom: 8 }}>{pinError}</div>}
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => { setSettingPin(false); setNewPin(""); setPinError(""); }} style={{ flex: 1, padding: 10, borderRadius: 999, border: "1px solid #DCDCE1", background: "transparent", color: "#5B5B62", fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                <button onClick={() => { setSettingPin(false); setNewPin(""); setConfirmPin(""); setPinError(""); }} style={{ flex: 1, padding: 10, borderRadius: 999, border: "1px solid #DCDCE1", background: "transparent", color: "#5B5B62", fontWeight: 600, cursor: "pointer" }}>Cancel</button>
                 <button onClick={savePin} style={{ flex: 1, padding: 10, borderRadius: 999, border: "none", background: "#4A80F0", color: "#FFFFFF", fontWeight: 700, cursor: "pointer" }}>Save PIN</button>
               </div>
             </>
